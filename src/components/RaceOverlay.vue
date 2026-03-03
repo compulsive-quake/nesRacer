@@ -11,6 +11,7 @@ const props = defineProps<{
   p1Paused?: boolean
   p2Paused?: boolean
   godMode?: boolean
+  eventLogCount?: number
 }>()
 
 const emit = defineEmits<{
@@ -21,6 +22,8 @@ const emit = defineEmits<{
   'next-screen': []
   'toggle-god-mode': []
   'open-memory': []
+  'open-recorder': []
+  'open-event-log': []
   'restart-level': [mode: number]
 }>()
 
@@ -120,6 +123,13 @@ function closeDebugPanel() {
           </button>
           <button class="debug-action" @click="emit('open-memory'); closeDebugPanel()">
             Memory Viewer
+          </button>
+          <button class="debug-action" @click="emit('open-recorder'); closeDebugPanel()">
+            Memory Recorder
+          </button>
+          <button class="debug-action event-log-btn" @click="emit('open-event-log'); closeDebugPanel()">
+            Event Log
+            <span v-if="eventLogCount" class="event-badge">{{ eventLogCount }}</span>
           </button>
           <button class="debug-action" @click="showRestartDialog = true; closeDebugPanel()">
             Restart Control
@@ -550,5 +560,25 @@ function closeDebugPanel() {
   font-size: 0.65rem;
   color: #888;
   margin-top: 0.1rem;
+}
+
+.event-log-btn {
+  position: relative;
+}
+
+.event-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: #e53935;
+  color: #fff;
+  font-size: 0.55rem;
+  font-weight: bold;
+  margin-left: 0.4rem;
+  line-height: 1;
 }
 </style>
