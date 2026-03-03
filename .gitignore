@@ -1,0 +1,5 @@
+node_modules
+dist
+*.local
+roms/*.nes
+.DS_Store
