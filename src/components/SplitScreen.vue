@@ -9,7 +9,7 @@ import { useRaceManager } from '../composables/useRaceManager';
 import { useInputManager } from '../composables/useInputManager';
 import { useWaypoints, type Waypoint } from '../composables/useWaypoints';
 import { useMemoryRecorder } from '../composables/useMemoryRecorder';
-import { useEventLog } from '../composables/useEventLog';
+import { useEventLog, type LogEntry } from '../composables/useEventLog';
 import type { NesEmulator } from '../types';
 
 const ROM_URL = '/roms/Super Mario Bros. (JU) (PRG0) [!].nes';
@@ -111,6 +111,18 @@ const race = useRaceManager();
 const wp = useWaypoints();
 const recorder = useMemoryRecorder();
 const eventLog = useEventLog();
+const eventLogUnsubscribers: (() => void)[] = [];
+
+/** Subscribe to event log entries matching a filter. Automatically cleaned up on unmount. */
+function onEventLog(
+  filter: (entry: LogEntry) => boolean,
+  action: (entry: LogEntry) => void,
+) {
+  const unsub = eventLog.subscribe((entry) => {
+    if (filter(entry)) action(entry);
+  });
+  eventLogUnsubscribers.push(unsub);
+}
 
 let inputManager: ReturnType<typeof useInputManager> | null = null;
 
@@ -356,32 +368,21 @@ function watchWinnerAndSyncLoser(winner: 1 | 2, targetWorld: number, targetLevel
   const loserEmu = winner === 1 ? p2Emu.value : p1Emu.value;
   if (!winnerEmu || !loserEmu) return;
 
+  onEventLog(
+  (e) => e.addr === 0x000E && e.toValue === 0x06,  // Player dies
+  (e) => { console.log(`P${e.player} died!`); },
+);
+
   let winnerReady = false;
   let loserReady = false;
   let loserWarped = false;
   let resolved = false;
   let warpInterval: ReturnType<typeof setInterval> | null = null;
 
-  const poll = setInterval(() => {
-    if (resolved) return;
-
-    // Step 3: Wait for loser to reach gameplay on the target level
-    if (loserWarped && !loserReady) {
-
-    }
-
-    if (winnerReady && loserReady) {
-      resolved = true;
-      clearInterval(poll);
-      finishTransition(loserEmu, winner);
-    }
-  }, 32);
-
   // Safety fallback — if either never reaches the target level
   setTimeout(() => {
     if (!resolved) {
       resolved = true;
-      clearInterval(poll);
       if (warpInterval) clearInterval(warpInterval);
       winnerEmu.pause();
       loserEmu.pause();
@@ -1661,6 +1662,7 @@ onUnmounted(() => {
   if (eventLogInterval) clearInterval(eventLogInterval);
   if (eventLogWindow && !eventLogWindow.closed) eventLogWindow.close();
   if (commandPaletteWindow && !commandPaletteWindow.closed) commandPaletteWindow.close();
+  eventLogUnsubscribers.forEach(unsub => unsub());
 });
 </script>
 

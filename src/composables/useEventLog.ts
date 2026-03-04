@@ -65,6 +65,9 @@ const WATCHED_ADDRESSES: WatchedAddress[] = [
 const entries = ref<LogEntry[]>([]);
 const entryCounter = ref(0);
 
+// Push-based subscriber registry
+const subscribers = new Set<(entry: LogEntry) => void>();
+
 // Track previous values per player to detect transitions
 const prevValues: Record<1 | 2, Record<number, number | undefined>> = {
   1: {},
@@ -91,7 +94,7 @@ export function useEventLog() {
       // Log any change (skip first read to establish baseline)
       if (previous !== undefined && current !== previous) {
         entryCounter.value++;
-        entries.value.push({
+        const entry: LogEntry = {
           index: entryCounter.value,
           watchLabel: watch.label,
           player,
@@ -101,7 +104,9 @@ export function useEventLog() {
           fromName: valueName(watch, previous),
           toValue: current,
           toName: valueName(watch, current),
-        });
+        };
+        entries.value.push(entry);
+        for (const cb of subscribers) cb(entry);
       }
 
       prev[watch.addr] = current;
@@ -114,11 +119,17 @@ export function useEventLog() {
 
   const count = computed(() => entries.value.length);
 
+  function subscribe(callback: (entry: LogEntry) => void): () => void {
+    subscribers.add(callback);
+    return () => subscribers.delete(callback);
+  }
+
   return {
     entries,
     count,
     poll,
     clear,
+    subscribe,
     watchedAddresses: WATCHED_ADDRESSES,
   };
 }
