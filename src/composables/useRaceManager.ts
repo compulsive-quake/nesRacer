@@ -88,6 +88,7 @@ export function useRaceManager() {
 
     // Advance to next level after delay (flag ceremony + death animation)
     levelCompleteTimer = setTimeout(() => {
+      console.log(`levelCompleteTimer`);
       advanceToNextLevel();
     }, 6000);
   }

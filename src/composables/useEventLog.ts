@@ -20,7 +20,6 @@ export interface LogEntry {
 
 // Addresses to watch — add new entries here
 const WATCHED_ADDRESSES: WatchedAddress[] = [
-
   {
     label: 'Game Mode',
     addr: 0x0770,
@@ -29,6 +28,16 @@ const WATCHED_ADDRESSES: WatchedAddress[] = [
       0x01: 'Start Normal',
       0x02: 'End Current World',
       0x03: 'End Game (dead)',
+    },
+  },
+  {
+    label: 'Level loading',
+    addr: 0x0770,
+    values: {
+      0x00: 'Restarts Level',
+      0x01: 'start of level',
+      0x02: 'unsure',
+      0x03: 'Reset Level',
     },
   },
   {

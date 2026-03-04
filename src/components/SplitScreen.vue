@@ -356,7 +356,6 @@ function watchWinnerAndSyncLoser(winner: 1 | 2, targetWorld: number, targetLevel
   const loserEmu = winner === 1 ? p2Emu.value : p1Emu.value;
   if (!winnerEmu || !loserEmu) return;
 
-
   let winnerReady = false;
   let loserReady = false;
   let loserWarped = false;
@@ -368,15 +367,7 @@ function watchWinnerAndSyncLoser(winner: 1 | 2, targetWorld: number, targetLevel
 
     // Step 3: Wait for loser to reach gameplay on the target level
     if (loserWarped && !loserReady) {
-      const geSub = loserEmu.readMemory(ADDR_GAME_ENGINE_SUB);
-      const operMode = loserEmu.readMemory(0x0770);
-      const worldNum = loserEmu.readMemory(0x075f) + 1;
-      const levelNum = loserEmu.readMemory(0x0760) + 1;
-      if (operMode === 1 && geSub === 8 && worldNum === targetWorld && levelNum === targetLevel) {
-        loserReady = true;
-        if (warpInterval) clearInterval(warpInterval);
-        loserEmu.pause();
-      }
+
     }
 
     if (winnerReady && loserReady) {
