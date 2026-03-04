@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import type { RaceResult } from '../types'
+import type { RaceResult } from '../types';
 
 const props = defineProps<{
   results: RaceResult[]
   p1Score: number
   p2Score: number
-}>()
+}>();
 </script>
 
 <template>

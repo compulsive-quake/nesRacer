@@ -1,11 +1,12 @@
-import { reactive } from 'vue'
-import type { GameState } from '../types'
+import { reactive } from 'vue';
+import type { GameState } from '../types';
 
 // Super Mario Bros. RAM map
 // Reference: https://datacrystal.tcrf.net/wiki/Super_Mario_Bros./RAM_map
 const ADDR = {
   OPER_MODE: 0x0770,           // 0=Demo, 1=Normal, 2=End world, 3=Game over
   OPER_MODE_TASK: 0x0772,      // Level loading setting (00=Restart level)
+
   // GameEngineSubroutine — game engine state machine:
   //  0=Entrance_GameTimerSetup, 1=Vine_AutoClimb, 2=SideExitPipeEntry,
   //  3=VerticalPipeEntry, 4=FlagpoleSlide, 5=PlayerEndLevel,
@@ -26,7 +27,7 @@ const ADDR = {
   TIMER_HUNDREDS: 0x07f8,
   TIMER_TENS: 0x07f9,
   TIMER_ONES: 0x07fa,
-} as const
+} as const;
 
 export function useGameDetector() {
   const state = reactive<GameState>({
@@ -39,43 +40,43 @@ export function useGameDetector() {
     isDead: false,
     isLevelComplete: false,
     gameEngineState: 0,
-  })
+  });
 
-  let prevOperMode = 0
-  let levelCompleteEmitted = false
+  let prevOperMode = 0;
+  let levelCompleteEmitted = false;
 
   function poll(readMemory: (addr: number) => number): GameState {
-    state.operMode = readMemory(ADDR.OPER_MODE)
-    state.world = readMemory(ADDR.WORLD_NUMBER) + 1
-    state.level = readMemory(ADDR.LEVEL_NUMBER) + 1
-    state.lives = readMemory(ADDR.LIVES)
-    state.gameEngineState = readMemory(ADDR.GAME_ENGINE_SUB)
+    state.operMode = readMemory(ADDR.OPER_MODE);
+    state.world = readMemory(ADDR.WORLD_NUMBER) + 1;
+    state.level = readMemory(ADDR.LEVEL_NUMBER) + 1;
+    state.lives = readMemory(ADDR.LIVES);
+    state.gameEngineState = readMemory(ADDR.GAME_ENGINE_SUB);
 
-    const page = readMemory(ADDR.PLAYER_PAGE)
-    const x = readMemory(ADDR.PLAYER_X)
-    state.playerX = page * 256 + x
-    state.playerY = readMemory(ADDR.PLAYER_Y)
+    const page = readMemory(ADDR.PLAYER_PAGE);
+    const x = readMemory(ADDR.PLAYER_X);
+    state.playerX = page * 256 + x;
+    state.playerY = readMemory(ADDR.PLAYER_Y);
 
-    const geSub = state.gameEngineState
+    const geSub = state.gameEngineState;
 
     // Dead: 6=PlayerLoseLife, 11=PlayerDeath (falling off screen)
-    state.isDead = geSub === 6 || geSub === 11
+    state.isDead = geSub === 6 || geSub === 11;
 
     // Level complete detection:
     // Flagpole levels (X-1, X-2, X-3): geSub 4=FlagpoleSlide or 5=PlayerEndLevel
     // Castle levels (X-4): OperMode 2 = VictoryMode (axe touched, bridge collapses)
     state.isLevelComplete =
-      geSub === 4 || geSub === 5 || state.operMode === 0x02
+      geSub === 4 || geSub === 5 || state.operMode === 0x02;
 
-    prevOperMode = state.operMode
-    return state
+    prevOperMode = state.operMode;
+    return state;
   }
 
   function resetDetection() {
-    state.isLevelComplete = false
-    state.isDead = false
-    levelCompleteEmitted = false
-    prevOperMode = 0
+    state.isLevelComplete = false;
+    state.isDead = false;
+    levelCompleteEmitted = false;
+    prevOperMode = 0;
   }
 
   return {
@@ -83,5 +84,5 @@ export function useGameDetector() {
     poll,
     resetDetection,
     ADDR,
-  }
+  };
 }

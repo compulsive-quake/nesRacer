@@ -1,37 +1,37 @@
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue'
-import { useNesEmulator } from '../composables/useNesEmulator'
-import type { NesEmulator } from '../types'
+import { ref, onMounted, watch } from 'vue';
+import { useNesEmulator } from '../composables/useNesEmulator';
+import type { NesEmulator } from '../types';
 
 const props = defineProps<{
   romUrl: string
   playerId: 1 | 2
   paused: boolean
   enableAudio?: boolean
-}>()
+}>();
 
 const emit = defineEmits<{
   ready: [emulator: NesEmulator]
-}>()
+}>();
 
-const canvasRef = ref<HTMLCanvasElement | null>(null)
-const emulator = useNesEmulator(props.enableAudio ?? false)
+const canvasRef = ref<HTMLCanvasElement | null>(null);
+const emulator = useNesEmulator(props.enableAudio ?? false);
 
 onMounted(async () => {
-  if (!canvasRef.value) return
-  emulator.setCanvas(canvasRef.value)
-  await emulator.loadROM(props.romUrl)
-  emulator.start()
-  emit('ready', emulator)
-})
+  if (!canvasRef.value) return;
+  emulator.setCanvas(canvasRef.value);
+  await emulator.loadROM(props.romUrl);
+  emulator.start();
+  emit('ready', emulator);
+});
 
 watch(() => props.paused, (isPaused) => {
   if (isPaused) {
-    emulator.pause()
+    emulator.pause();
   } else {
-    emulator.resume()
+    emulator.resume();
   }
-})
+});
 </script>
 
 <template>

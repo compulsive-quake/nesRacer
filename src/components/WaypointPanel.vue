@@ -1,26 +1,26 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-import type { Waypoint } from '../composables/useWaypoints'
+import { ref } from 'vue';
+import type { Waypoint } from '../composables/useWaypoints';
 
 defineProps<{
   waypoints: Waypoint[]
-}>()
+}>();
 
 const emit = defineEmits<{
   add: []
   load: [waypoint: Waypoint]
   remove: [id: string]
-}>()
+}>();
 
-const open = ref(false)
+const open = ref(false);
 
 function formatTime(ts: number): string {
-  return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+  return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
 
 function handleLoad(wp: Waypoint) {
-  emit('load', wp)
-  open.value = false
+  emit('load', wp);
+  open.value = false;
 }
 </script>
 

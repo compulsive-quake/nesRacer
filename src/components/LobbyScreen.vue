@@ -1,7 +1,7 @@
 <script setup lang="ts">
 const emit = defineEmits<{
   startLocal: []
-}>()
+}>();
 </script>
 
 <template>

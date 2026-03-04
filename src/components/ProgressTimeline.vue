@@ -1,39 +1,39 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import type { RaceState } from '../types'
+import { computed } from 'vue';
+import type { RaceState } from '../types';
 
 const props = defineProps<{
   state: RaceState
-}>()
+}>();
 
 // Build all 32 levels: 8 worlds × 4 levels
 const levels = Array.from({ length: 32 }, (_, i) => ({
   world: Math.floor(i / 4) + 1,
   level: (i % 4) + 1,
   index: i,
-}))
+}));
 
 // Current level as a 0-based index (0–31)
 const currentLevelIndex = computed(() => {
-  return (props.state.currentWorld - 1) * 4 + (props.state.currentLevel - 1)
-})
+  return (props.state.currentWorld - 1) * 4 + (props.state.currentLevel - 1);
+});
 
 // Map of "world-level" → winner for completed levels
 const resultMap = computed(() => {
-  const map = new Map<string, 1 | 2>()
+  const map = new Map<string, 1 | 2>();
   for (const r of props.state.results) {
-    map.set(`${r.world}-${r.level}`, r.winner)
+    map.set(`${r.world}-${r.level}`, r.winner);
   }
-  return map
-})
+  return map;
+});
 
 function levelKey(world: number, level: number) {
-  return `${world}-${level}`
+  return `${world}-${level}`;
 }
 
 // Position as a percentage along the track
 function levelPercent(index: number) {
-  return (index / (levels.length - 1)) * 100
+  return (index / (levels.length - 1)) * 100;
 }
 </script>
 

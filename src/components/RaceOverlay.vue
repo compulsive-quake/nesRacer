@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-import type { RaceState } from '../types'
+import { ref } from 'vue';
+import type { RaceState } from '../types';
 
 const props = defineProps<{
   state: RaceState
@@ -12,35 +12,46 @@ const props = defineProps<{
   p2Paused?: boolean
   godMode?: boolean
   eventLogCount?: number
-}>()
+  p1Sound?: boolean
+  p2Sound?: boolean
+  p1Music?: boolean
+  p2Music?: boolean
+}>();
 
 const emit = defineEmits<{
   quit: []
   'update:volume': [volume: number]
   'toggle-mute': []
+  'toggle-p1-sound': []
+  'toggle-p2-sound': []
+  'toggle-p1-music': []
+  'toggle-p2-music': []
   'skip-level': []
   'next-screen': []
   'toggle-god-mode': []
   'open-memory': []
   'open-recorder': []
   'open-event-log': []
+  'open-command-palette': []
   'restart-level': [mode: number]
-}>()
+  'toggle-pause': []
+}>();
 
-const showDebugPanel = ref(false)
-const showRestartDialog = ref(false)
+const showDebugPanel = ref(false);
+const showRestartDialog = ref(false);
+const showSettingsModal = ref(false);
 
 function onVolumeInput(e: Event) {
-  const val = parseFloat((e.target as HTMLInputElement).value)
-  emit('update:volume', val)
+  const val = parseFloat((e.target as HTMLInputElement).value);
+  emit('update:volume', val);
 }
 
 function toggleDebugPanel() {
-  showDebugPanel.value = !showDebugPanel.value
+  showDebugPanel.value = !showDebugPanel.value;
 }
 
 function closeDebugPanel() {
-  showDebugPanel.value = false
+  showDebugPanel.value = false;
 }
 </script>
 
@@ -78,6 +89,15 @@ function closeDebugPanel() {
       <button class="quit-btn" @click="emit('quit')" title="Quit to Lobby">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
           <path d="M12 4L4 12M4 4l8 8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+      </button>
+      <button class="pause-btn" @click="emit('toggle-pause')" :title="p1Paused && p2Paused ? 'Resume' : 'Pause'">
+        <svg v-if="p1Paused && p2Paused" width="16" height="16" viewBox="0 0 16 16" fill="none">
+          <path d="M4 2l10 6-10 6V2z" fill="currentColor"/>
+        </svg>
+        <svg v-else width="16" height="16" viewBox="0 0 16 16" fill="none">
+          <rect x="3" y="2" width="4" height="12" rx="1" fill="currentColor"/>
+          <rect x="9" y="2" width="4" height="12" rx="1" fill="currentColor"/>
         </svg>
       </button>
       <span class="score-item">
@@ -131,12 +151,21 @@ function closeDebugPanel() {
             Event Log
             <span v-if="eventLogCount" class="event-badge">{{ eventLogCount }}</span>
           </button>
+          <button class="debug-action" @click="emit('open-command-palette'); closeDebugPanel()">
+            Command Palette
+          </button>
           <button class="debug-action" @click="showRestartDialog = true; closeDebugPanel()">
             Restart Control
           </button>
         </div>
         <div v-if="showDebugPanel" class="debug-backdrop" @click="closeDebugPanel" />
       </div>
+      <button class="settings-btn" @click="showSettingsModal = true" title="Settings">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+          <path d="M6.7 1h2.6l.3 1.8.9.4 1.5-1 1.8 1.8-1 1.5.4.9 1.8.3v2.6l-1.8.3-.4.9 1 1.5-1.8 1.8-1.5-1-.9.4-.3 1.8H6.7l-.3-1.8-.9-.4-1.5 1-1.8-1.8 1-1.5-.4-.9L1 9.3V6.7l1.8-.3.4-.9-1-1.5L4 2.2l1.5 1 .9-.4L6.7 1z" stroke="currentColor" stroke-width="1.2" fill="none"/>
+          <circle cx="8" cy="8" r="2" stroke="currentColor" stroke-width="1.2" fill="none"/>
+        </svg>
+      </button>
       <div class="volume-controls">
         <button class="mute-btn" @click="emit('toggle-mute')" :title="muted ? 'Unmute' : 'Mute'">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
@@ -160,6 +189,45 @@ function closeDebugPanel() {
           :value="muted ? 0 : volume"
           @input="onVolumeInput"
         />
+      </div>
+    </div>
+
+    <!-- Settings Modal -->
+    <div v-if="showSettingsModal" class="dialog-backdrop" @click="showSettingsModal = false">
+      <div class="settings-dialog" @click.stop>
+        <div class="settings-title">Settings</div>
+        <div class="settings-columns">
+          <div class="settings-col">
+            <div class="settings-col-header">P1</div>
+            <label class="settings-toggle" @click="emit('toggle-p1-sound')">
+              <span class="toggle-label">Sound</span>
+              <span class="toggle-switch" :class="{ on: p1Sound }">
+                <span class="toggle-knob" />
+              </span>
+            </label>
+            <label class="settings-toggle" @click="emit('toggle-p1-music')">
+              <span class="toggle-label">Music</span>
+              <span class="toggle-switch" :class="{ on: p1Music }">
+                <span class="toggle-knob" />
+              </span>
+            </label>
+          </div>
+          <div class="settings-col">
+            <div class="settings-col-header">P2</div>
+            <label class="settings-toggle" @click="emit('toggle-p2-sound')">
+              <span class="toggle-label">Sound</span>
+              <span class="toggle-switch" :class="{ on: p2Sound }">
+                <span class="toggle-knob" />
+              </span>
+            </label>
+            <label class="settings-toggle" @click="emit('toggle-p2-music')">
+              <span class="toggle-label">Music</span>
+              <span class="toggle-switch" :class="{ on: p2Music }">
+                <span class="toggle-knob" />
+              </span>
+            </label>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -285,6 +353,26 @@ function closeDebugPanel() {
   color: #ff4646;
 }
 
+.pause-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #aaa;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+  flex-shrink: 0;
+}
+
+.pause-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+  color: #fff;
+}
+
 .level-display {
   color: #aaa;
 }
@@ -408,6 +496,114 @@ function closeDebugPanel() {
   position: fixed;
   inset: 0;
   z-index: 25;
+}
+
+.settings-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #aaa;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+  flex-shrink: 0;
+}
+
+.settings-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+  color: #fff;
+}
+
+.settings-dialog {
+  background: #1a1a1a;
+  border: 1px solid #444;
+  border-radius: 8px;
+  padding: 1.2rem;
+  min-width: 340px;
+  max-width: 420px;
+}
+
+.settings-title {
+  font-size: 0.9rem;
+  font-weight: bold;
+  color: #fff;
+  margin-bottom: 0.8rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 1px solid #333;
+}
+
+.settings-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.8rem;
+}
+
+.settings-col-header {
+  font-size: 0.7rem;
+  color: #aaa;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.5rem;
+  padding-bottom: 0.3rem;
+  border-bottom: 1px solid #333;
+  font-weight: 600;
+}
+
+.settings-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid #333;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+  margin-bottom: 0.4rem;
+}
+
+.settings-toggle:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: #555;
+}
+
+.toggle-label {
+  font-size: 0.8rem;
+  color: #ccc;
+  font-weight: 600;
+}
+
+.toggle-switch {
+  position: relative;
+  width: 36px;
+  height: 20px;
+  border-radius: 10px;
+  background: #444;
+  transition: background 0.2s;
+  flex-shrink: 0;
+}
+
+.toggle-switch.on {
+  background: #4caf50;
+}
+
+.toggle-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.2s;
+}
+
+.toggle-switch.on .toggle-knob {
+  transform: translateX(16px);
 }
 
 .volume-controls {

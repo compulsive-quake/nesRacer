@@ -1,9 +1,9 @@
 /// <reference types="vite/client" />
 
 declare module '*.vue' {
-  import type { DefineComponent } from 'vue'
-  const component: DefineComponent<{}, {}, any>
-  export default component
+  import type { DefineComponent } from 'vue';
+  const component: DefineComponent<{}, {}, any>;
+  export default component;
 }
 
 declare module 'jsnes' {
@@ -14,7 +14,7 @@ declare module 'jsnes' {
       emulateSound?: boolean
       sampleRate?: number
     })
-    cpu: { mem: Uint8Array }
+    cpu: { mem: Uint8Array };
     loadROM(data: string): void
     frame(): void
     reset(): void
@@ -36,5 +36,5 @@ declare module 'jsnes' {
     BUTTON_DOWN: number
     BUTTON_LEFT: number
     BUTTON_RIGHT: number
-  }
+  };
 }
