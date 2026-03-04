@@ -5,3 +5,4 @@ roms/*.nes
 .DS_Store
 .idea
 .claude
+/research

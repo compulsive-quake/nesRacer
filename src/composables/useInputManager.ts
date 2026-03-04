@@ -1,37 +1,28 @@
-import { Controller } from 'jsnes';
-import type { InputBinding, PlayerNumber } from '../types';
+import { ref } from 'vue'
+import { Controller } from 'jsnes'
+import type { InputBinding, PlayerNumber, NesButton } from '../types'
+import { NES_BUTTONS } from '../types'
 
-const P1_BINDINGS: InputBinding = {
-  up: 'KeyW',
-  down: 'KeyS',
-  left: 'KeyA',
-  right: 'KeyD',
-  a: 'KeyK',
-  b: 'KeyJ',
-  start: 'Enter',
-  select: 'ShiftLeft',
-};
-
-const P2_BINDINGS: InputBinding = {
-  up: 'ArrowUp',
-  down: 'ArrowDown',
-  left: 'ArrowLeft',
-  right: 'ArrowRight',
-  a: 'Period',
-  b: 'Comma',
-  start: 'Backslash',
-  select: 'BracketRight',
-};
-
-// Pre-built lookup map: keyCode → { player, nesButton }
-// O(1) per keypress instead of iterating both binding objects
-const KEY_MAP = new Map<string, { player: PlayerNumber; button: number }>();
-
-for (const [action, code] of Object.entries(P1_BINDINGS)) {
-  KEY_MAP.set(code, { player: 1, button: Controller[`BUTTON_${action.toUpperCase()}` as keyof typeof Controller] as number });
+export const DEFAULT_P1: Readonly<InputBinding> = {
+  up: 'KeyW', down: 'KeyS', left: 'KeyA', right: 'KeyD',
+  a: 'KeyK', b: 'KeyJ', start: 'Enter', select: 'ShiftLeft',
 }
-for (const [action, code] of Object.entries(P2_BINDINGS)) {
-  KEY_MAP.set(code, { player: 2, button: Controller[`BUTTON_${action.toUpperCase()}` as keyof typeof Controller] as number });
+
+export const DEFAULT_P2: Readonly<InputBinding> = {
+  up: 'ArrowUp', down: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight',
+  a: 'Period', b: 'Comma', start: 'Backslash', select: 'BracketRight',
+}
+
+function loadBindings(key: string, fallback: Readonly<InputBinding>): InputBinding {
+  try {
+    const stored = localStorage.getItem(key)
+    if (stored) return JSON.parse(stored)
+  } catch { /* ignore corrupt data */ }
+  return { ...fallback }
+}
+
+function saveBindings(key: string, bindings: InputBinding) {
+  localStorage.setItem(key, JSON.stringify(bindings))
 }
 
 type ButtonHandler = (player: number, button: number) => void
@@ -42,43 +33,68 @@ export function useInputManager(
   p2ButtonDown: ButtonHandler,
   p2ButtonUp: ButtonHandler,
 ) {
-  function onKeyDown(e: KeyboardEvent) {
-    if (e.repeat) return;
-    const entry = KEY_MAP.get(e.code);
-    if (!entry) return;
-    e.preventDefault();
-    if (entry.player === 1) {
-      p1ButtonDown(1, entry.button);
-    } else {
-      p2ButtonDown(2, entry.button);
+  const p1Bindings = ref<InputBinding>(loadBindings('nesRacer:p1Bindings', DEFAULT_P1))
+  const p2Bindings = ref<InputBinding>(loadBindings('nesRacer:p2Bindings', DEFAULT_P2))
+
+  // Mutable map — rebuilt when bindings change. Plain variable (not reactive) for hot-path perf.
+  let keyMap = new Map<string, { player: PlayerNumber; button: number }>()
+
+  function rebuildKeyMap() {
+    keyMap = new Map()
+    for (const action of NES_BUTTONS) {
+      keyMap.set(p1Bindings.value[action], {
+        player: 1,
+        button: Controller[`BUTTON_${action.toUpperCase()}` as keyof typeof Controller] as number,
+      })
+      keyMap.set(p2Bindings.value[action], {
+        player: 2,
+        button: Controller[`BUTTON_${action.toUpperCase()}` as keyof typeof Controller] as number,
+      })
     }
+  }
+
+  rebuildKeyMap()
+
+  function updateBindings(p1: InputBinding, p2: InputBinding) {
+    p1Bindings.value = { ...p1 }
+    p2Bindings.value = { ...p2 }
+    saveBindings('nesRacer:p1Bindings', p1Bindings.value)
+    saveBindings('nesRacer:p2Bindings', p2Bindings.value)
+    rebuildKeyMap()
+  }
+
+  function onKeyDown(e: KeyboardEvent) {
+    if (e.repeat) return
+    const entry = keyMap.get(e.code)
+    if (!entry) return
+    e.preventDefault()
+    if (entry.player === 1) p1ButtonDown(1, entry.button)
+    else p2ButtonDown(2, entry.button)
   }
 
   function onKeyUp(e: KeyboardEvent) {
-    const entry = KEY_MAP.get(e.code);
-    if (!entry) return;
-    e.preventDefault();
-    if (entry.player === 1) {
-      p1ButtonUp(1, entry.button);
-    } else {
-      p2ButtonUp(2, entry.button);
-    }
+    const entry = keyMap.get(e.code)
+    if (!entry) return
+    e.preventDefault()
+    if (entry.player === 1) p1ButtonUp(1, entry.button)
+    else p2ButtonUp(2, entry.button)
   }
 
   function attach() {
-    window.addEventListener('keydown', onKeyDown);
-    window.addEventListener('keyup', onKeyUp);
+    window.addEventListener('keydown', onKeyDown)
+    window.addEventListener('keyup', onKeyUp)
   }
 
   function detach() {
-    window.removeEventListener('keydown', onKeyDown);
-    window.removeEventListener('keyup', onKeyUp);
+    window.removeEventListener('keydown', onKeyDown)
+    window.removeEventListener('keyup', onKeyUp)
   }
 
   return {
     attach,
     detach,
-    P1_BINDINGS,
-    P2_BINDINGS,
-  };
+    p1Bindings,
+    p2Bindings,
+    updateBindings,
+  }
 }

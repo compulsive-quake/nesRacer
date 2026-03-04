@@ -4,9 +4,10 @@ import NesScreen from './NesScreen.vue';
 import RaceOverlay from './RaceOverlay.vue';
 import ProgressTimeline from './ProgressTimeline.vue';
 import WaypointPanel from './WaypointPanel.vue';
+import BindDialog from './BindDialog.vue';
 import { useGameDetector } from '../composables/useGameDetector';
 import { useRaceManager } from '../composables/useRaceManager';
-import { useInputManager } from '../composables/useInputManager';
+import { useInputManager, DEFAULT_P1, DEFAULT_P2 } from '../composables/useInputManager';
 import { useWaypoints, type Waypoint } from '../composables/useWaypoints';
 import { useMemoryRecorder } from '../composables/useMemoryRecorder';
 import { useEventLog, type LogEntry } from '../composables/useEventLog';
@@ -126,6 +127,31 @@ function onEventLog(
 }
 
 let inputManager: ReturnType<typeof useInputManager> | null = null;
+const showBindDialog = ref(false);
+const currentP1Bindings = ref<import('../types').InputBinding>({ ...DEFAULT_P1 });
+const currentP2Bindings = ref<import('../types').InputBinding>({ ...DEFAULT_P2 });
+
+function handleOpenBindings() {
+  if (inputManager) {
+    currentP1Bindings.value = { ...inputManager.p1Bindings.value };
+    currentP2Bindings.value = { ...inputManager.p2Bindings.value };
+  }
+  inputManager?.detach();
+  showBindDialog.value = true;
+}
+
+function handleBindingsApply(p1: import('../types').InputBinding, p2: import('../types').InputBinding) {
+  inputManager?.updateBindings(p1, p2);
+  currentP1Bindings.value = { ...p1 };
+  currentP2Bindings.value = { ...p2 };
+  showBindDialog.value = false;
+  inputManager?.attach();
+}
+
+function handleBindingsClose() {
+  showBindDialog.value = false;
+  inputManager?.attach();
+}
 
 const p1Banner = computed(() => {
   if (!race.state.levelWinner) return null;
@@ -1696,6 +1722,15 @@ onUnmounted(() => {
       @open-command-palette="openCommandPalette"
       @restart-level="handleRestartLevel"
       @toggle-pause="handleTogglePause"
+      @open-bindings="handleOpenBindings"
+    />
+
+    <BindDialog
+      v-if="showBindDialog"
+      :p1-bindings="currentP1Bindings"
+      :p2-bindings="currentP2Bindings"
+      @close="handleBindingsClose"
+      @apply="handleBindingsApply"
     />
 
     <div class="screens">

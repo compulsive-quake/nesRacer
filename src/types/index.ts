@@ -39,6 +39,24 @@ export interface InputBinding {
   select: string
 }
 
+export type NesButton = keyof InputBinding
+
+export const NES_BUTTONS: NesButton[] = ['up', 'down', 'left', 'right', 'a', 'b', 'start', 'select']
+
+export interface BindingPreset {
+  id: string
+  name: string
+  p1: InputBinding
+  p2: InputBinding
+  builtIn?: boolean
+}
+
+export interface GameInfo {
+  filename: string
+  title: string
+  index: number
+}
+
 export interface NesEmulator {
   canvas: import('vue').Ref<HTMLCanvasElement | null>
   running: import('vue').Ref<boolean>

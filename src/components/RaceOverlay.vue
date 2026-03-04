@@ -35,6 +35,7 @@ const emit = defineEmits<{
   'open-command-palette': []
   'restart-level': [mode: number]
   'toggle-pause': []
+  'open-bindings': []
 }>();
 
 const showDebugPanel = ref(false);
@@ -160,6 +161,17 @@ function closeDebugPanel() {
         </div>
         <div v-if="showDebugPanel" class="debug-backdrop" @click="closeDebugPanel" />
       </div>
+      <button class="settings-btn" @click="emit('open-bindings')" title="Key Bindings">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+          <rect x="1" y="4" width="14" height="9" rx="1.5" stroke="currentColor" stroke-width="1.2" fill="none"/>
+          <rect x="3" y="6" width="2" height="1.5" rx="0.3" fill="currentColor"/>
+          <rect x="6" y="6" width="2" height="1.5" rx="0.3" fill="currentColor"/>
+          <rect x="9" y="6" width="2" height="1.5" rx="0.3" fill="currentColor"/>
+          <rect x="3" y="8.5" width="2" height="1.5" rx="0.3" fill="currentColor"/>
+          <rect x="6" y="8.5" width="4" height="1.5" rx="0.3" fill="currentColor"/>
+          <rect x="11" y="8.5" width="2" height="1.5" rx="0.3" fill="currentColor"/>
+        </svg>
+      </button>
       <button class="settings-btn" @click="showSettingsModal = true" title="Settings">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
           <path d="M6.7 1h2.6l.3 1.8.9.4 1.5-1 1.8 1.8-1 1.5.4.9 1.8.3v2.6l-1.8.3-.4.9 1 1.5-1.8 1.8-1.5-1-.9.4-.3 1.8H6.7l-.3-1.8-.9-.4-1.5 1-1.8-1.8 1-1.5-.4-.9L1 9.3V6.7l1.8-.3.4-.9-1-1.5L4 2.2l1.5 1 .9-.4L6.7 1z" stroke="currentColor" stroke-width="1.2" fill="none"/>
