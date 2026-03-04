@@ -66,10 +66,9 @@ watch(() => props.paused, (isPaused) => {
 }
 
 canvas {
+  width: 100%;
   height: 100%;
-  width: auto;
-  max-width: 100%;
-  max-height: 100%;
+  object-fit: contain;
   image-rendering: pixelated;
   image-rendering: crisp-edges;
   display: block;

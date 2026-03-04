@@ -9,8 +9,10 @@ export function useNesEmulator(enableAudio = false) {
   let nes: NES | null = null;
   let ctx: CanvasRenderingContext2D | null = null;
   let imageData: ImageData | null = null;
+  let frameBuf32: Uint32Array | null = null;
   let animFrameId: number | null = null;
   let lastFrameTime = 0;
+  let accumulator = 0;
   const NES_FRAME_MS = 1000 / 60;
 
   // Audio
@@ -20,19 +22,19 @@ export function useNesEmulator(enableAudio = false) {
   let audioScriptNode: ScriptProcessorNode | null = null;
   let gainNode: GainNode | null = null;
 
-  const onFrameCallback = ref<((nes: NES) => void) | null>(null);
+  // Plain variable — no Vue reactivity overhead in the hot loop
+  let _onFrameCallback: ((nes: NES) => void) | null = null;
 
   function init() {
     nes = new NES({
       onFrame(frameBuffer: Int32Array) {
-        if (!ctx || !imageData) return;
-        const data = imageData.data;
+        if (!ctx || !imageData || !frameBuf32) return;
+        // Uint32Array bulk copy: 1 write per pixel instead of 4 byte writes
+        // jsnes pixels: R[0:7] | G[8:15] | B[16:23]
+        // ImageData on little-endian: Uint32 = 0xAABBGGRR → bytes [R,G,B,A]
+        // So we just set alpha=0xFF and keep the rest as-is
         for (let i = 0; i < frameBuffer.length; i++) {
-          const pixel = frameBuffer[i];
-          data[i * 4 + 0] = pixel & 0xff;          // R (NTSC palette is BGR)
-          data[i * 4 + 1] = (pixel >> 8) & 0xff;   // G
-          data[i * 4 + 2] = (pixel >> 16) & 0xff;  // B (NTSC palette is BGR)
-          data[i * 4 + 3] = 0xff;                   // A
+          frameBuf32[i] = 0xFF000000 | (frameBuffer[i] & 0x00FFFFFF);
         }
         ctx.putImageData(imageData, 0, 0);
       },
@@ -54,6 +56,8 @@ export function useNesEmulator(enableAudio = false) {
     canvas.value = el;
     ctx = el.getContext('2d', { desynchronized: true, alpha: false })!;
     imageData = ctx.createImageData(256, 240);
+    // Create a Uint32Array view over the same buffer for fast pixel writes
+    frameBuf32 = new Uint32Array(imageData.data.buffer);
   }
 
   async function loadROM(url: string) {
@@ -120,6 +124,8 @@ export function useNesEmulator(enableAudio = false) {
     if (!nes) return;
     running.value = true;
     paused.value = false;
+    lastFrameTime = 0;
+    accumulator = 0;
     if (enableAudio && !audioCtx) setupAudio();
     animFrameId = requestAnimationFrame(frameLoop);
   }
@@ -127,13 +133,19 @@ export function useNesEmulator(enableAudio = false) {
   function frameLoop(timestamp: number) {
     if (!running.value || !nes) return;
     if (!paused.value) {
-      const elapsed = timestamp - lastFrameTime;
-      if (elapsed >= NES_FRAME_MS) {
-        lastFrameTime = timestamp - (elapsed % NES_FRAME_MS);
+      // Initialize on first callback to avoid a huge initial delta
+      if (lastFrameTime === 0) lastFrameTime = timestamp;
+
+      accumulator += timestamp - lastFrameTime;
+      lastFrameTime = timestamp;
+
+      // Cap to 3 frames to prevent spiral-of-death after tab switch / debugger pause
+      if (accumulator > NES_FRAME_MS * 3) accumulator = NES_FRAME_MS * 3;
+
+      while (accumulator >= NES_FRAME_MS) {
         nes.frame();
-        if (onFrameCallback.value) {
-          onFrameCallback.value(nes);
-        }
+        if (_onFrameCallback) _onFrameCallback(nes);
+        accumulator -= NES_FRAME_MS;
       }
     }
     animFrameId = requestAnimationFrame(frameLoop);
@@ -145,6 +157,9 @@ export function useNesEmulator(enableAudio = false) {
 
   function resume() {
     paused.value = false;
+    // Reset timing so we don't try to catch up for the paused duration
+    lastFrameTime = 0;
+    accumulator = 0;
   }
 
   function stop() {
@@ -197,7 +212,7 @@ export function useNesEmulator(enableAudio = false) {
   }
 
   function onFrame(callback: (nes: NES) => void) {
-    onFrameCallback.value = callback;
+    _onFrameCallback = callback;
   }
 
   onUnmounted(() => {

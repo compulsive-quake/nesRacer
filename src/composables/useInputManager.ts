@@ -23,16 +23,16 @@ const P2_BINDINGS: InputBinding = {
   select: 'BracketRight',
 };
 
-const BUTTON_MAP: Record<keyof InputBinding, number> = {
-  up: Controller.BUTTON_UP,
-  down: Controller.BUTTON_DOWN,
-  left: Controller.BUTTON_LEFT,
-  right: Controller.BUTTON_RIGHT,
-  a: Controller.BUTTON_A,
-  b: Controller.BUTTON_B,
-  start: Controller.BUTTON_START,
-  select: Controller.BUTTON_SELECT,
-};
+// Pre-built lookup map: keyCode → { player, nesButton }
+// O(1) per keypress instead of iterating both binding objects
+const KEY_MAP = new Map<string, { player: PlayerNumber; button: number }>();
+
+for (const [action, code] of Object.entries(P1_BINDINGS)) {
+  KEY_MAP.set(code, { player: 1, button: Controller[`BUTTON_${action.toUpperCase()}` as keyof typeof Controller] as number });
+}
+for (const [action, code] of Object.entries(P2_BINDINGS)) {
+  KEY_MAP.set(code, { player: 2, button: Controller[`BUTTON_${action.toUpperCase()}` as keyof typeof Controller] as number });
+}
 
 type ButtonHandler = (player: number, button: number) => void
 
@@ -42,37 +42,26 @@ export function useInputManager(
   p2ButtonDown: ButtonHandler,
   p2ButtonUp: ButtonHandler,
 ) {
-  function findBinding(code: string): { player: PlayerNumber; action: keyof InputBinding } | null {
-    for (const [action, key] of Object.entries(P1_BINDINGS)) {
-      if (key === code) return { player: 1, action: action as keyof InputBinding };
-    }
-    for (const [action, key] of Object.entries(P2_BINDINGS)) {
-      if (key === code) return { player: 2, action: action as keyof InputBinding };
-    }
-    return null;
-  }
-
   function onKeyDown(e: KeyboardEvent) {
-    const binding = findBinding(e.code);
-    if (!binding) return;
+    if (e.repeat) return;
+    const entry = KEY_MAP.get(e.code);
+    if (!entry) return;
     e.preventDefault();
-    const button = BUTTON_MAP[binding.action];
-    if (binding.player === 1) {
-      p1ButtonDown(1, button);
+    if (entry.player === 1) {
+      p1ButtonDown(1, entry.button);
     } else {
-      p2ButtonDown(2, button);
+      p2ButtonDown(2, entry.button);
     }
   }
 
   function onKeyUp(e: KeyboardEvent) {
-    const binding = findBinding(e.code);
-    if (!binding) return;
+    const entry = KEY_MAP.get(e.code);
+    if (!entry) return;
     e.preventDefault();
-    const button = BUTTON_MAP[binding.action];
-    if (binding.player === 1) {
-      p1ButtonUp(1, button);
+    if (entry.player === 1) {
+      p1ButtonUp(1, entry.button);
     } else {
-      p2ButtonUp(2, button);
+      p2ButtonUp(2, entry.button);
     }
   }
 

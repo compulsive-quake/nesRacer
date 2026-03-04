@@ -12,6 +12,7 @@ import { useMemoryRecorder } from '../composables/useMemoryRecorder';
 import { useEventLog, type LogEntry } from '../composables/useEventLog';
 import type { NesEmulator } from '../types';
 
+const { subscribe } = useEventLog();
 const ROM_URL = '/roms/Super Mario Bros. (JU) (PRG0) [!].nes';
 
 const emit = defineEmits<{
@@ -205,12 +206,14 @@ function checkBothReady() {
   if (!p1Emu.value || !p2Emu.value) return;
   bothReady.value = true;
 
-  // Setup input manager
+  // Setup input manager — cache refs to avoid reactive .value access on every keypress
+  const p1 = p1Emu.value!;
+  const p2 = p2Emu.value!;
   inputManager = useInputManager(
-    (p, b) => p1Emu.value!.buttonDown(p, b),
-    (p, b) => p1Emu.value!.buttonUp(p, b),
-    (p, b) => p2Emu.value!.buttonDown(p, b),
-    (p, b) => p2Emu.value!.buttonUp(p, b),
+    (p, b) => p1.buttonDown(p, b),
+    (p, b) => p1.buttonUp(p, b),
+    (p, b) => p2.buttonDown(p, b),
+    (p, b) => p2.buttonUp(p, b),
   );
   inputManager.attach();
 
@@ -226,7 +229,7 @@ function checkBothReady() {
 
     // Lock music off: force silence every frame so the game can't restart music
     if (!p1Music.value && nes.cpu.mem[ADDR_AREA_MUSIC] !== 0x00) {
-      // console.log(nes)
+
       p1LastSong.value = nes.cpu.mem[ADDR_AREA_MUSIC];
       nes.cpu.mem[ADDR_AREA_MUSIC] = 0x80;
     }
@@ -290,53 +293,11 @@ function skipTitleScreen(emu: NesEmulator) {
         emu.buttonDown(1, emu.Controller.BUTTON_START);
         setTimeout(() => {
           emu.buttonUp(1, emu.Controller.BUTTON_START);
-          // Now pause and wait for race start
-          // setTimeout(() => {
-          //   emu.pause();
-          // }, 500);
         }, 100);
       }, 500);
     }, 100);
   }, 1000);
 }
-
-// function skipTitleScreenAsLuigi(emu: NesEmulator) {
-//   // Same as skipTitleScreen but selects 2-player mode first
-//   emu.resume();
-//   setTimeout(() => {
-//     // First Start press — exit demo / show title screen
-//     emu.buttonDown(1, emu.Controller.BUTTON_START);
-//     setTimeout(() => {
-//       emu.buttonUp(1, emu.Controller.BUTTON_START);
-//       // Press Select to switch cursor to "2 PLAYER GAME"
-//       setTimeout(() => {
-//         emu.buttonDown(1, emu.Controller.BUTTON_SELECT);
-//         setTimeout(() => {
-//           emu.buttonUp(1, emu.Controller.BUTTON_SELECT);
-//           // Press Start to begin in 2-player mode
-//           setTimeout(() => {
-//             emu.buttonDown(1, emu.Controller.BUTTON_START);
-//             setTimeout(() => {
-//               emu.buttonUp(1, emu.Controller.BUTTON_START);
-//               // Set CurrentPlayer=1 so game loads as Luigi
-//               setTimeout(() => {
-//                 emu.writeMemory(ADDR_CURRENT_PLAYER, 1);
-//                 emu.writeMemory(ADDR_NUMBER_OF_PLAYERS, 1);
-//                 emu.pause();
-//               }, 500);
-//             }, 100);
-//           }, 300);
-//         }, 100);
-//       }, 300);
-//     }, 100);
-//   }, 1000);
-// }
-
-// function killPlayer(emu: NesEmulator) {
-//   // Replicate SMB's KillPlayer: set upward bounce velocity, then enter dying state
-//   emu.writeMemory(0x009F, 0xFC);  // Player_Y_Speed — initial upward bounce (same as KillPlayer in SMB ROM)
-//   emu.writeMemory(0x000E, 0x0B);  // GameEngineSubroutine = PlayerDeath (dying)
-// }
 
 function startRace() {
   // Wait for title screen skipping to complete
@@ -355,8 +316,41 @@ function startRace() {
       },
       onWinnerReachedNextLevel(winner: 1 | 2, world: number, level: number) {
         const loser = winner !== 1 ? 1 : 2;
+        const winnerEmu = winner === 1 ? p1Emu.value : p2Emu.value;
+        const loserEmu = winner === 1 ? p2Emu.value : p1Emu.value;
+
+        let p1Ready = false;
+        let p2Ready = false;
+
         deathScreenPlayer(loser);
         watchWinnerAndSyncLoser(winner, world, level);
+
+        // Subscribe — callback fires on every new LogEntry
+        const unsubscribe = subscribe((entry) => {
+          if (entry.addr === 0x000E && entry.toValue === 0x08) {
+
+            if (entry.player === 1) {
+              p1Ready = true;
+              if (p1Ready && p2Ready) {
+                p1Emu.value?.resume();
+                p2Emu.value?.resume();
+                unsubscribe();
+              } else {
+                p1Emu.value?.pause();
+              }
+            } else {
+              p2Ready = true;
+              if (p1Ready && p2Ready) {
+                p1Emu.value?.resume();
+                p2Emu.value?.resume();
+                unsubscribe();
+              } else {
+                p2Emu.value?.pause();
+              }
+            }
+          }
+        });
+
       },
     });
   }, 3000);
@@ -367,11 +361,6 @@ function watchWinnerAndSyncLoser(winner: 1 | 2, targetWorld: number, targetLevel
   const winnerEmu = winner === 1 ? p1Emu.value : p2Emu.value;
   const loserEmu = winner === 1 ? p2Emu.value : p1Emu.value;
   if (!winnerEmu || !loserEmu) return;
-
-  onEventLog(
-  (e) => e.addr === 0x000E && e.toValue === 0x06,  // Player dies
-  (e) => { console.log(`P${e.player} died!`); },
-);
 
   let winnerReady = false;
   let loserReady = false;
@@ -1379,7 +1368,6 @@ let commandPaletteWindow: Window | null = null;
 
 function timeoutPlayer(playerNum: 1 | 2) {
   const emu = playerNum === 1 ? p1Emu.value : p2Emu.value;
-  console.log(`loser playerNum: ${playerNum}`);
   if (!emu) return;
   emu.writeMemory(0x07FA, 0); // Game Timer Ones
   emu.writeMemory(0x07F9, 0); // Game Timer Tens
@@ -1389,11 +1377,21 @@ function timeoutPlayer(playerNum: 1 | 2) {
 function nextLevelPlayer(playerNum: 1 | 2) {
   const emu = playerNum === 1 ? p1Emu.value : p2Emu.value;
   if (!emu) return;
-  emu.writeMemory(0x072C, 0);                        // ScreenLeft_PageLoc
-  const current075C = emu.readMemory(0x075C);
-  emu.writeMemory(0x075C, current075C + 1);           // IntervalTimerControl
-  const currentLevel = emu.readMemory(0x0760);
-  emu.writeMemory(0x0760, currentLevel + 1);          // LevelNumber
+
+  let currentLevelAlt = emu.readMemory(0x075C);
+  let currentLevel = emu.readMemory(0x0760);
+  let currentWorld = emu.readMemory(0x075F);
+
+  emu.writeMemory(0x072C, 0);
+
+  if (currentWorld === 3) {
+    emu.writeMemory(0x075C, 0);
+    emu.writeMemory(0x0760, 0);
+    emu.writeMemory(0x075F, currentWorld + 1);
+  } else {
+    emu.writeMemory(0x075C, currentLevelAlt + 1);
+    emu.writeMemory(0x0760, currentLevel + 1);
+  }
 }
 
 function getPalettes(playerNum: 1 | 2): number[] {
@@ -1710,9 +1708,9 @@ onUnmounted(() => {
           :enable-audio="true"
           @ready="onP1Ready"
         />
-        <div v-if="p1Banner" class="player-banner" :class="p1Banner">
+       <!---- <div v-if="p1Banner" class="player-banner" :class="p1Banner">
           {{ p1Banner === 'win' ? 'YOU WIN!' : 'YOU LOSE!' }}
-        </div>
+        </div> -->
         <WaypointPanel
           class="wp-left"
           :waypoints="wp.p1Waypoints.value"
@@ -1774,13 +1772,14 @@ onUnmounted(() => {
   min-width: 0;
   min-height: 0;
   display: flex;
+  background: #000;
 }
 
 .divider {
   width: 3px;
   align-self: stretch;
   background: linear-gradient(to bottom, transparent, #444, transparent);
-  margin: 0 0.5rem;
+  margin: 0;
 }
 
 .debug-paused {
@@ -1804,12 +1803,13 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
+  margin-top: 50px;
   font-family: 'Press Start 2P', monospace;
   font-size: 1.4rem;
   color: #fcfcfc;
-  text-shadow: 1px 1px 0 #000;
   pointer-events: none;
-  image-rendering: pixelated;
+  filter: blur(0.6px);
+  -webkit-font-smoothing: none;
   animation: banner-pop 0.3s ease-out;
   z-index: 5;
 }
