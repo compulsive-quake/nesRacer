@@ -2,19 +2,26 @@
 import { ref, computed, reactive, watch, onMounted, onUnmounted } from 'vue'
 import type { GameInfo } from '../types'
 import { useGameCatalog } from '../composables/useGameCatalog'
+import { useFavorites } from '../composables/useFavorites'
+import { hasSplitScreen } from '../gameRegistry'
 
 const props = defineProps<{
   defaultGame?: string
   filterQuery?: string
+  favoritesOnly?: boolean
+  splitScreenOnly?: boolean
 }>()
 
 const emit = defineEmits<{
   'update:selectedGame': [game: GameInfo]
+  activate: [game: GameInfo]
 }>()
 
 const { catalog, resolveImageUrl, findGameIndex } = useGameCatalog()
 
+const { isFavorite, toggleFavorite } = useFavorites()
 const containerRef = ref<HTMLElement | null>(null)
+const hoveredIndex = ref<number | null>(null)
 const scrollOffset = ref(0)
 const velocity = ref(0)
 const isDragging = ref(false)
@@ -27,9 +34,11 @@ const normalizedFilter = computed(() => props.filterQuery?.trim().toLowerCase() 
 const isFiltered = computed(() => normalizedFilter.value.length > 0)
 
 const filteredIndices = computed<number[]>(() => {
-  if (!isFiltered.value) return catalog.map((_, i) => i)
   return catalog.reduce<number[]>((acc, g, i) => {
-    if (g.title.toLowerCase().includes(normalizedFilter.value)) acc.push(i)
+    if (isFiltered.value && !g.title.toLowerCase().includes(normalizedFilter.value)) return acc
+    if (props.favoritesOnly && !isFavorite(g.index)) return acc
+    if (props.splitScreenOnly && (g.romId == null || !hasSplitScreen(g.romId))) return acc
+    acc.push(i)
     return acc
   }, [])
 })
@@ -159,8 +168,14 @@ function onItemClick(item: VisibleItem) {
   // Only count as a click if the user didn't drag
   if (dragDistance > 5) return
 
-  // Find this game's position in the filtered list and glide there
   const pos = filteredIndices.value.indexOf(item.game.index)
+  // If already centered on this item, activate it
+  if (pos === selectedIndex.value) {
+    emit('activate', item.game)
+    return
+  }
+
+  // Otherwise glide there
   if (pos >= 0) {
     velocity.value = 0
     clickTarget = pos
@@ -371,6 +386,8 @@ onUnmounted(() => {
         class="carousel-item"
         :style="getItemStyle(item.distFromCenter)"
         @click="onItemClick(item)"
+        @mouseenter="hoveredIndex = item.game.index"
+        @mouseleave="hoveredIndex = null"
       >
         <img
           v-if="item.imageUrl"
@@ -379,6 +396,17 @@ onUnmounted(() => {
           draggable="false"
         />
         <div v-else class="placeholder" />
+        <button
+          v-if="hoveredIndex === item.game.index || isFavorite(item.game.index)"
+          class="fav-star"
+          :class="{ active: isFavorite(item.game.index) }"
+          title="Toggle favorite"
+          @click.stop="toggleFavorite(item.game.index)"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" :fill="isFavorite(item.game.index) ? 'currentColor' : 'none'" stroke="currentColor" stroke-width="2">
+            <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+          </svg>
+        </button>
       </div>
 
       <!-- Exiting items (fading out) -->
@@ -445,6 +473,33 @@ onUnmounted(() => {
   object-fit: contain;
   border-radius: 4px;
   filter: drop-shadow(0 4px 16px rgba(0, 0, 0, 0.7));
+}
+
+.fav-star {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.6);
+  color: #888;
+  cursor: pointer;
+  padding: 0;
+  transition: all 0.15s;
+}
+
+.fav-star:hover {
+  color: #f5c518;
+  background: rgba(0, 0, 0, 0.8);
+}
+
+.fav-star.active {
+  color: #f5c518;
 }
 
 .placeholder {

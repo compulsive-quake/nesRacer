@@ -8,6 +8,7 @@ const props = defineProps<{
   playerId: 1 | 2
   paused: boolean
   enableAudio?: boolean
+  pixelated?: boolean
 }>();
 
 const emit = defineEmits<{
@@ -41,6 +42,7 @@ watch(() => props.paused, (isPaused) => {
         ref="canvasRef"
         width="256"
         height="240"
+        :class="{ smooth: pixelated === false }"
       />
     </div>
   </div>
@@ -74,5 +76,9 @@ canvas {
   image-rendering: crisp-edges;
   display: block;
   background: #000;
+}
+
+canvas.smooth {
+  image-rendering: auto;
 }
 </style>

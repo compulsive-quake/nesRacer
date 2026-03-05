@@ -24,6 +24,16 @@ export const DEFAULT_P2_GAMEPAD: Readonly<InputBinding> = {
   a: 'GP1:B0', b: 'GP1:B2', start: 'GP1:B9', select: 'GP1:B8',
 }
 
+/** Generate default gamepad bindings for any gamepad index. */
+export function defaultGamepadBindings(gpIndex: number): InputBinding {
+  return {
+    up: `GP${gpIndex}:B12`, down: `GP${gpIndex}:B13`,
+    left: `GP${gpIndex}:B14`, right: `GP${gpIndex}:B15`,
+    a: `GP${gpIndex}:B0`, b: `GP${gpIndex}:B2`,
+    start: `GP${gpIndex}:B9`, select: `GP${gpIndex}:B8`,
+  }
+}
+
 function loadBindings(key: string, fallback: Readonly<InputBinding>): InputBinding {
   try {
     const stored = localStorage.getItem(key)

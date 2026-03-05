@@ -145,6 +145,40 @@ export function useGamepad(
 }
 
 /**
+ * Listens for any gamepad button press and resolves with the gamepad index.
+ * Used for quick "assign controller to player" flow.
+ * Returns a stop function.
+ */
+export function listenForGamepadAssign(onDetected: (gamepadIndex: number) => void): () => void {
+  let running = true
+  let rafId = 0
+  const prevButtons = new Map<number, boolean[]>()
+
+  function poll() {
+    const gamepads = navigator.getGamepads()
+    for (const gp of gamepads) {
+      if (!gp) continue
+      const prev = prevButtons.get(gp.index) ?? []
+      const curr: boolean[] = []
+      for (let i = 0; i < gp.buttons.length; i++) {
+        const pressed = gp.buttons[i].pressed
+        curr[i] = pressed
+        if (pressed && !(prev[i] ?? false)) {
+          onDetected(gp.index)
+          running = false
+          return
+        }
+      }
+      prevButtons.set(gp.index, curr)
+    }
+    if (running) rafId = requestAnimationFrame(poll)
+  }
+
+  rafId = requestAnimationFrame(poll)
+  return () => { running = false; cancelAnimationFrame(rafId) }
+}
+
+/**
  * Lightweight gamepad listener for the bind dialog.
  * Calls onInput when any gamepad button/axis is pressed.
  * Returns a stop function.

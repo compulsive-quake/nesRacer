@@ -1,5 +1,5 @@
 import { reactive } from 'vue';
-import type { RaceState, GameState } from '../types';
+import type { RaceState, GameState } from '../../types';
 
 export function useRaceManager() {
   const state = reactive<RaceState>({

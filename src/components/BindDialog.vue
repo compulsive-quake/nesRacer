@@ -4,7 +4,8 @@ import type { InputBinding, NesButton } from '../types'
 import { NES_BUTTONS } from '../types'
 import { keyCodeToLabel, isGamepadCode } from '../utils/keyLabels'
 import { useBindingPresets } from '../composables/useBindingPresets'
-import { listenForGamepadInput } from '../composables/useGamepad'
+import { listenForGamepadInput, listenForGamepadAssign } from '../composables/useGamepad'
+import { defaultGamepadBindings } from '../composables/useInputManager'
 import NesControllerPreview from './NesControllerPreview.vue'
 
 const props = defineProps<{
@@ -117,6 +118,27 @@ function deletePreset() {
   selectedPresetId.value = presets.value[0]?.id ?? ''
 }
 
+// --- Controller assignment ---
+const assigningPlayer = ref<1 | 2 | null>(null)
+let stopAssignListen: (() => void) | null = null
+
+function startAssign(player: 1 | 2) {
+  cancelAssign()
+  assigningPlayer.value = player
+  stopAssignListen = listenForGamepadAssign((gpIndex) => {
+    const bindings = defaultGamepadBindings(gpIndex)
+    if (player === 1) editP1Gp.value = { ...bindings }
+    else editP2Gp.value = { ...bindings }
+    assigningPlayer.value = null
+    stopAssignListen = null
+  })
+}
+
+function cancelAssign() {
+  if (stopAssignListen) { stopAssignListen(); stopAssignListen = null }
+  assigningPlayer.value = null
+}
+
 // --- Pressed-state tracking for controller preview ---
 const pressedCodes = reactive(new Set<string>())
 
@@ -215,6 +237,7 @@ onUnmounted(() => {
   window.removeEventListener('keyup', onPreviewKeyUp)
   cancelAnimationFrame(previewRafId)
   if (stopGamepadListen) { stopGamepadListen(); stopGamepadListen = null }
+  cancelAssign()
 })
 </script>
 
@@ -232,7 +255,16 @@ onUnmounted(() => {
           <div class="bind-columns">
             <!-- P1 -->
             <div class="bind-col">
-              <div class="bind-col-header">P1 (Mario)</div>
+              <div class="bind-col-header">
+                P1 (Mario)
+                <button
+                  class="assign-btn"
+                  :class="{ listening: assigningPlayer === 1 }"
+                  @click="assigningPlayer === 1 ? cancelAssign() : startAssign(1)"
+                >
+                  {{ assigningPlayer === 1 ? 'Press any button...' : 'Assign Controller' }}
+                </button>
+              </div>
               <div class="bind-sub-headers">
                 <span class="bind-action"></span>
                 <span class="bind-sub-label">Keyboard</span>
@@ -268,7 +300,16 @@ onUnmounted(() => {
             </div>
             <!-- P2 -->
             <div class="bind-col">
-              <div class="bind-col-header">P2 (Luigi)</div>
+              <div class="bind-col-header">
+                P2 (Luigi)
+                <button
+                  class="assign-btn"
+                  :class="{ listening: assigningPlayer === 2 }"
+                  @click="assigningPlayer === 2 ? cancelAssign() : startAssign(2)"
+                >
+                  {{ assigningPlayer === 2 ? 'Press any button...' : 'Assign Controller' }}
+                </button>
+              </div>
               <div class="bind-sub-headers">
                 <span class="bind-action"></span>
                 <span class="bind-sub-label">Keyboard</span>
@@ -418,6 +459,35 @@ onUnmounted(() => {
   letter-spacing: 0.05em;
   color: #aaa;
   margin-bottom: 0.3rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.assign-btn {
+  font-size: 0.6rem;
+  font-family: inherit;
+  padding: 0.15rem 0.4rem;
+  border: 1px solid #555;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #aed581;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, color 0.15s;
+  text-transform: none;
+  letter-spacing: normal;
+  font-weight: normal;
+}
+
+.assign-btn:hover {
+  border-color: #aed581;
+  background: rgba(174, 213, 129, 0.12);
+}
+
+.assign-btn.listening {
+  border-color: #4dabf7;
+  color: #4dabf7;
+  animation: pulse 1s infinite;
 }
 
 .bind-sub-headers {

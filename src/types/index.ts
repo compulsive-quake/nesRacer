@@ -57,6 +57,7 @@ export interface GameInfo {
   filename: string
   title: string
   index: number
+  romId: number | undefined
 }
 
 export interface NesEmulator {

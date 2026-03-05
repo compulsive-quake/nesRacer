@@ -2,8 +2,14 @@
 import { ref, watch } from 'vue';
 import type { RaceState } from '../types';
 
+export interface GenieCode {
+  code: string
+  title: string
+  enabled: boolean
+}
+
 const props = defineProps<{
-  state: RaceState
+  state?: RaceState
   volume: number
   muted: boolean
   fps?: number
@@ -19,6 +25,8 @@ const props = defineProps<{
   connectedPads?: number[]
   padPlayerMap?: Record<number, string>
   bareMode?: boolean
+  genieCodes?: GenieCode[]
+  pixelated?: boolean
 }>();
 
 // --- Gamepad toast notifications ---
@@ -78,11 +86,14 @@ const emit = defineEmits<{
   'toggle-pause': []
   'open-bindings': []
   'toggle-bare-mode': []
+  'toggle-genie-code': [index: number]
+  'toggle-pixelated': []
 }>();
 
 const showDebugPanel = ref(false);
 const showRestartDialog = ref(false);
 const showSettingsModal = ref(false);
+const showGenieModal = ref(false);
 
 function onVolumeInput(e: Event) {
   const val = parseFloat((e.target as HTMLInputElement).value);
@@ -101,23 +112,23 @@ function closeDebugPanel() {
 <template>
   <div class="race-overlay">
     <!-- Race Over -->
-    <div v-if="state.phase === 'race-over'" class="overlay-center">
+    <div v-if="state?.phase === 'race-over'" class="overlay-center">
       <div class="race-over-banner">
         <div class="race-over-title">Race Over!</div>
         <div class="final-scores">
-          <div class="score" :class="{ winner: state.p1Score > state.p2Score }">
-            P1: {{ state.p1Score }}
+          <div class="score" :class="{ winner: state!.p1Score > state!.p2Score }">
+            P1: {{ state!.p1Score }}
           </div>
           <div class="score-divider">-</div>
-          <div class="score" :class="{ winner: state.p2Score > state.p1Score }">
-            P2: {{ state.p2Score }}
+          <div class="score" :class="{ winner: state!.p2Score > state!.p1Score }">
+            P2: {{ state!.p2Score }}
           </div>
         </div>
         <div class="final-winner">
-          <template v-if="state.p1Score > state.p2Score">
+          <template v-if="state!.p1Score > state!.p2Score">
             Player 1 is the Champion!
           </template>
-          <template v-else-if="state.p2Score > state.p1Score">
+          <template v-else-if="state!.p2Score > state!.p1Score">
             Player 2 is the Champion!
           </template>
           <template v-else>
@@ -199,6 +210,16 @@ function closeDebugPanel() {
         </div>
         <div v-if="showDebugPanel" class="debug-backdrop" @click="closeDebugPanel" />
       </div>
+      <button
+        class="settings-btn"
+        :class="{ active: genieCodes?.some(c => c.enabled) }"
+        @click="showGenieModal = true"
+        title="Game Genie"
+      >
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+          <text x="1" y="12.5" font-size="10" font-weight="bold" fill="currentColor" font-family="sans-serif">GG</text>
+        </svg>
+      </button>
       <button class="settings-btn" @click="emit('open-bindings')" title="Key Bindings">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
           <rect x="1" y="4" width="14" height="9" rx="1.5" stroke="currentColor" stroke-width="1.2" fill="none"/>
@@ -296,6 +317,39 @@ function closeDebugPanel() {
               </span>
             </label>
           </div>
+        </div>
+        <div class="settings-section">
+          <div class="settings-col-header">Display</div>
+          <label class="settings-toggle" @click="emit('toggle-pixelated')">
+            <span class="toggle-label">Pixelated</span>
+            <span class="toggle-switch" :class="{ on: pixelated }">
+              <span class="toggle-knob" />
+            </span>
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <!-- Game Genie Modal -->
+    <div v-if="showGenieModal" class="dialog-backdrop" @click="showGenieModal = false">
+      <div class="genie-dialog" @click.stop>
+        <div class="genie-title">Game Genie Codes</div>
+        <div class="genie-desc">Toggle codes on/off — applies to both players</div>
+        <div class="genie-list">
+          <label
+            v-for="(gc, i) in genieCodes"
+            :key="gc.code"
+            class="genie-item"
+            :class="{ active: gc.enabled }"
+          >
+            <input
+              type="checkbox"
+              :checked="gc.enabled"
+              @change="emit('toggle-genie-code', i)"
+            />
+            <span class="genie-code">{{ gc.code }}</span>
+            <span class="genie-label">{{ gc.title }}</span>
+          </label>
         </div>
       </div>
     </div>
@@ -614,6 +668,11 @@ function closeDebugPanel() {
   gap: 0.8rem;
 }
 
+.settings-section {
+  margin-top: 0.8rem;
+  padding-top: 0.4rem;
+}
+
 .settings-col-header {
   font-size: 0.7rem;
   color: #aaa;
@@ -909,5 +968,81 @@ function closeDebugPanel() {
 .pad-toast-leave-to {
   opacity: 0;
   transform: scale(0.85);
+}
+
+.settings-btn.active {
+  background: rgba(255, 180, 0, 0.25);
+  color: #ffb400;
+}
+
+.genie-dialog {
+  background: #1a1a1a;
+  border: 1px solid #444;
+  border-radius: 8px;
+  padding: 1.2rem;
+  min-width: 340px;
+  max-width: 480px;
+}
+
+.genie-title {
+  font-size: 0.9rem;
+  font-weight: bold;
+  color: #fff;
+  margin-bottom: 0.25rem;
+}
+
+.genie-desc {
+  font-size: 0.7rem;
+  color: #888;
+  margin-bottom: 1rem;
+}
+
+.genie-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.genie-item {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid #333;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.genie-item:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: #555;
+}
+
+.genie-item.active {
+  background: rgba(76, 175, 80, 0.12);
+  border-color: #4caf50;
+}
+
+.genie-item input[type="checkbox"] {
+  accent-color: #4caf50;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.genie-code {
+  font-family: 'Courier New', monospace;
+  font-size: 0.8rem;
+  font-weight: bold;
+  color: #4fc3f7;
+  min-width: 5rem;
+}
+
+.genie-label {
+  font-size: 0.75rem;
+  color: #ccc;
 }
 </style>

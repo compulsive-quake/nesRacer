@@ -1,4 +1,5 @@
 import type { GameInfo } from '../types'
+import { getRomId } from '../romRegistry'
 
 const artworkGlob = import.meta.glob<string>(
   '/src/assets/artwork/nes/Box_3d/*.png',
@@ -17,7 +18,8 @@ const catalog: GameInfo[] = Object.keys(artworkGlob)
   .map(path => {
     const filename = path.split('/').pop()!
     const title = parseTitle(filename)
-    return { filename, title, index: 0 }
+    const nesFilename = filename.replace(/\.png$/, '.nes')
+    return { filename, title, index: 0, romId: getRomId(nesFilename) }
   })
   .sort((a, b) => a.title.localeCompare(b.title))
   .map((item, i) => ({ ...item, index: i }))
@@ -36,6 +38,24 @@ async function resolveImageUrl(index: number): Promise<string> {
   return url
 }
 
+let preloadPromise: Promise<void> | null = null
+let preloadProgress = 0
+
+async function preloadAll(onProgress?: (loaded: number, total: number) => void): Promise<void> {
+  if (preloadPromise) return preloadPromise
+  const total = catalog.length
+  let loaded = 0
+  preloadPromise = Promise.all(
+    catalog.map(async (game) => {
+      await resolveImageUrl(game.index)
+      loaded++
+      preloadProgress = loaded
+      onProgress?.(loaded, total)
+    })
+  ).then(() => {})
+  return preloadPromise
+}
+
 function findGameIndex(partial: string): number {
   const lower = partial.toLowerCase()
   const idx = catalog.findIndex(g => g.filename.toLowerCase().includes(lower))
@@ -47,6 +67,8 @@ export function useGameCatalog() {
     catalog,
     totalGames: catalog.length,
     resolveImageUrl,
+    preloadAll,
+    preloadProgress: () => preloadProgress,
     findGameIndex,
   }
 }

@@ -1,5 +1,5 @@
 import { reactive } from 'vue';
-import type { GameState } from '../types';
+import type { GameState } from '../../types';
 
 // Super Mario Bros. RAM map
 // Reference: https://datacrystal.tcrf.net/wiki/Super_Mario_Bros./RAM_map

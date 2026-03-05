@@ -1,19 +1,23 @@
 <script setup lang="ts">
 import {ref, shallowRef, computed, watch, onUnmounted, Ref, UnwrapRef} from 'vue';
-import NesScreen from './NesScreen.vue';
-import RaceOverlay from './RaceOverlay.vue';
-import ProgressTimeline from './ProgressTimeline.vue';
-import WaypointPanel from './WaypointPanel.vue';
-import BindDialog from './BindDialog.vue';
-import { useGameDetector } from '../composables/useGameDetector';
-import { useRaceManager } from '../composables/useRaceManager';
-import { useInputManager, DEFAULT_P1, DEFAULT_P2, DEFAULT_P1_GAMEPAD, DEFAULT_P2_GAMEPAD } from '../composables/useInputManager';
-import { useWaypoints, type Waypoint } from '../composables/useWaypoints';
-import { useMemoryRecorder } from '../composables/useMemoryRecorder';
-import { useEventLog, type LogEntry } from '../composables/useEventLog';
-import type { NesEmulator } from '../types';
+import NesScreen from '../../components/NesScreen.vue';
+import RaceOverlay, { type GenieCode } from '../../components/RaceOverlay.vue';
+import ProgressTimeline from '../../components/ProgressTimeline.vue';
+import WaypointPanel from '../../components/WaypointPanel.vue';
+import BindDialog from '../../components/BindDialog.vue';
+import { useGameDetector } from './useGameDetector';
+import { useRaceManager } from './useRaceManager';
+import { useInputManager, DEFAULT_P1, DEFAULT_P2, DEFAULT_P1_GAMEPAD, DEFAULT_P2_GAMEPAD } from '../../composables/useInputManager';
+import { useWaypoints, type Waypoint } from '../../composables/useWaypoints';
+import { useMemoryRecorder } from '../../composables/useMemoryRecorder';
+import { useEventLog, type LogEntry } from '../../composables/useEventLog';
+import { useToolbarWindows } from '../../composables/useToolbarWindows';
+import { getGameToolbarConfig } from '../../gameConfigs';
+import type { NesEmulator } from '../../types';
 
-const ROM_URL = '/roms/Super Mario Bros. (World).nes';
+const props = defineProps<{
+  romUrl: string
+}>();
 
 const emit = defineEmits<{
   backToLobby: []
@@ -33,9 +37,44 @@ const p1Music = ref(localStorage.getItem('nesRacer:p1Music') !== 'false');
 const p2Music = ref(localStorage.getItem('nesRacer:p2Music') === 'true');
 const p1CurrentPalette = ref(1)
 const p2CurrentPalette = ref(1)
+const pixelated = ref(localStorage.getItem('nesRacer:pixelated') !== 'false')
 const bareMode = ref(false)
 // Plain boolean mirror of bareMode for hot frame callbacks — avoids Vue reactive overhead every frame
 let bareModeRaw = false
+
+const genieCodes = ref<GenieCode[]>([
+  { code: 'APZLGK', title: 'Super jump from a standing start only', enabled: false },
+  { code: 'TPZLTG', title: 'Super jump from walking only', enabled: false },
+  { code: 'GPZUAG', title: 'Super jump from running only', enabled: false },
+  { code: 'APZLGG', title: 'Mega-jump from a standing start only', enabled: false },
+  { code: 'APZLTG', title: 'Mega-jump from walking only', enabled: false },
+  { code: 'GAZUAG', title: 'Mega-jump from running only', enabled: false },
+  { code: 'YAZULG', title: '"Moon gravity" from a standing start', enabled: false },
+  { code: 'YAZUIG', title: '"Moon gravity" from a walking start', enabled: false },
+  { code: 'YAZUYG', title: '"Moon gravity" from running only', enabled: false },
+  { code: 'GOZSXX ', title: 'Everything is a star!', enabled: false },
+
+])
+
+function handleToggleGenieCode(index: number) {
+  const gc = genieCodes.value[index]
+  gc.enabled = !gc.enabled
+  // Sync codes to both emulators
+  for (const emu of [p1Emu.value, p2Emu.value]) {
+    if (!emu) continue
+    const nes = emu.getNes()
+    if (!nes) continue
+    nes.gameGenie.removeAllCodes()
+    for (const c of genieCodes.value) {
+      if (c.enabled) nes.gameGenie.addCode(c.code)
+    }
+  }
+}
+
+function togglePixelated() {
+  pixelated.value = !pixelated.value
+  localStorage.setItem('nesRacer:pixelated', String(pixelated.value))
+}
 
 function toggleBareMode() {
   bareMode.value = !bareMode.value
@@ -43,7 +82,7 @@ function toggleBareMode() {
   if (bareMode.value) {
     // Stop all debug refresh intervals to eliminate timer overhead
     if (memoryInterval) { clearInterval(memoryInterval); memoryInterval = null; }
-    if (eventLogInterval) { clearInterval(eventLogInterval); eventLogInterval = null; }
+    toolbarWindows.stopIntervals();
     if (recorderRefreshInterval) { clearInterval(recorderRefreshInterval); recorderRefreshInterval = null; }
     // Stop any active recording
     if (recorder.isRecording.value) recorder.stopRecording();
@@ -135,7 +174,14 @@ const p2Detector = useGameDetector();
 const race = useRaceManager();
 const wp = useWaypoints();
 const recorder = useMemoryRecorder();
+const gameConfig = getGameToolbarConfig(902);
 const eventLog = useEventLog();
+eventLog.configure(gameConfig.watchedAddresses);
+const toolbarWindows = useToolbarWindows({
+  config: gameConfig,
+  emus: [p1Emu, p2Emu],
+  eventLog,
+});
 const eventLogUnsubscribers: (() => void)[] = [];
 
 /** Subscribe to event log entries matching a filter. Automatically cleaned up on unmount. */
@@ -162,10 +208,10 @@ const padPlayerMap = computed<Record<number, string>>(() => {
   return map;
 });
 const showBindDialog = ref(false);
-const currentP1Bindings = ref<import('../types').InputBinding>({ ...DEFAULT_P1 });
-const currentP2Bindings = ref<import('../types').InputBinding>({ ...DEFAULT_P2 });
-const currentP1GpBindings = ref<import('../types').InputBinding>({ ...DEFAULT_P1_GAMEPAD });
-const currentP2GpBindings = ref<import('../types').InputBinding>({ ...DEFAULT_P2_GAMEPAD });
+const currentP1Bindings = ref<import('../../types').InputBinding>({ ...DEFAULT_P1 });
+const currentP2Bindings = ref<import('../../types').InputBinding>({ ...DEFAULT_P2 });
+const currentP1GpBindings = ref<import('../../types').InputBinding>({ ...DEFAULT_P1_GAMEPAD });
+const currentP2GpBindings = ref<import('../../types').InputBinding>({ ...DEFAULT_P2_GAMEPAD });
 
 function handleOpenBindings() {
   if (inputManager) {
@@ -178,7 +224,7 @@ function handleOpenBindings() {
   showBindDialog.value = true;
 }
 
-function handleBindingsApply(p1: import('../types').InputBinding, p2: import('../types').InputBinding, p1Gp: import('../types').InputBinding, p2Gp: import('../types').InputBinding) {
+function handleBindingsApply(p1: import('../../types').InputBinding, p2: import('../../types').InputBinding, p1Gp: import('../../types').InputBinding, p2Gp: import('../../types').InputBinding) {
   inputManager?.updateBindings(p1, p2, p1Gp, p2Gp);
   currentP1Bindings.value = { ...p1 };
   currentP2Bindings.value = { ...p2 };
@@ -950,146 +996,7 @@ function openMemoryViewer() {
   memoryInterval = setInterval(refresh, 100);
 }
 
-let eventLogWindow: Window | null = null;
-let eventLogInterval: ReturnType<typeof setInterval> | null = null;
-
-function openEventLog() {
-  if (eventLogWindow && !eventLogWindow.closed) {
-    eventLogWindow.focus();
-    return;
-  }
-
-  eventLogWindow = window.open('', 'nesRacerEventLog', 'width=750,height=500,scrollbars=yes');
-  if (!eventLogWindow) return;
-
-  const doc = eventLogWindow.document;
-  doc.write(`<!DOCTYPE html>
-<html><head><title>nesRacer — Event Log</title>
-<style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { background: #0a0a0a; color: #ccc; font-family: 'Courier New', monospace; font-size: 13px; }
-
-  .toolbar { position: sticky; top: 0; z-index: 10; background: #111; border-bottom: 1px solid #333;
-             padding: 10px 16px; display: flex; align-items: center; gap: 12px; }
-  .toolbar h1 { font-family: sans-serif; font-size: 16px; color: #fff; margin: 0; white-space: nowrap; }
-  .toolbar .count { font-size: 12px; color: #888; }
-  .btn { background: #1a1a1a; border: 1px solid #333; border-radius: 4px; color: #ccc;
-         padding: 5px 12px; cursor: pointer; font-size: 12px; font-family: sans-serif; transition: all 0.15s; }
-  .btn:hover { border-color: #555; color: #fff; }
-  .btn-danger { border-color: #e53935; color: #e53935; }
-  .btn-danger:hover { background: rgba(229, 57, 53, 0.1); }
-  .spacer { flex: 1; }
-
-  .watched-section { padding: 8px 16px; border-bottom: 1px solid #1a1a1a; }
-  .watched-section h3 { font-family: sans-serif; font-size: 11px; color: #666; text-transform: uppercase;
-                         letter-spacing: 0.05em; margin-bottom: 4px; }
-  .watched-item { font-size: 11px; color: #888; padding: 2px 0; }
-  .watched-addr { color: #4fc3f7; }
-  .watched-label { color: #aaa; }
-  .watched-values { color: #666; }
-
-  .content { padding: 8px 16px 16px; }
-
-  .log-entry { display: flex; gap: 10px; padding: 5px 8px; border-bottom: 1px solid #1a1a1a;
-               font-size: 12px; align-items: baseline; }
-  .log-entry:hover { background: rgba(255,255,255,0.03); }
-  .log-entry.new { animation: flash 0.6s ease-out; }
-  @keyframes flash { 0% { background: rgba(245, 166, 35, 0.2); } 100% { background: transparent; } }
-  .e-index { color: #555; min-width: 28px; font-size: 11px; }
-  .e-time { color: #888; min-width: 70px; font-size: 11px; }
-  .e-player { font-size: 11px; font-weight: bold; min-width: 24px; }
-  .e-player.p1 { color: #4caf50; }
-  .e-player.p2 { color: #5c8fff; }
-  .e-label { color: #f5a623; flex: 1; }
-  .e-values { color: #ccc; white-space: nowrap; font-size: 11px; }
-  .e-from { color: #e53935; }
-  .e-to { color: #4caf50; }
-
-  .empty-state { text-align: center; padding: 40px; color: #555; font-family: sans-serif; font-size: 13px; }
-</style></head>
-<body>
-  <div class="toolbar">
-    <h1>Event Log</h1>
-    <span id="count" class="count"></span>
-    <span class="spacer"></span>
-    <button id="btn-clear" class="btn btn-danger">Clear</button>
-  </div>
-  <div id="watched" class="watched-section"></div>
-  <div class="content">
-    <div id="log-body"></div>
-  </div>
-</body></html>`);
-  doc.close();
-
-  const countEl = doc.getElementById('count')!;
-  const logBody = doc.getElementById('log-body')!;
-  const watchedEl = doc.getElementById('watched')!;
-  const btnClear = doc.getElementById('btn-clear') as HTMLButtonElement;
-
-  // Show watched addresses
-  let watchedHtml = '<h3>Watching</h3>';
-  for (const w of eventLog.watchedAddresses) {
-    const addrHex = w.addr.toString(16).toUpperCase().padStart(4, '0');
-    watchedHtml += `<div class="watched-item">`;
-    watchedHtml += `<span class="watched-addr">$${addrHex}</span> `;
-    watchedHtml += `<span class="watched-label">${w.label}</span> `;
-    const valStrs = Object.entries(w.values)
-      .map(([v, name]) => `$${Number(v).toString(16).toUpperCase().padStart(2, '0')}=${name}`)
-      .join(', ');
-    watchedHtml += `<span class="watched-values">${valStrs}</span>`;
-    watchedHtml += `</div>`;
-  }
-  watchedEl.innerHTML = watchedHtml;
-
-  btnClear.addEventListener('click', () => {
-    eventLog.clear();
-  });
-
-  let lastRenderedCount = 0;
-  const startTime = performance.now();
-
-  function refresh() {
-    if (!eventLogWindow || eventLogWindow.closed) {
-      if (eventLogInterval) clearInterval(eventLogInterval);
-      eventLogInterval = null;
-      return;
-    }
-
-    const allEntries = eventLog.entries.value;
-    countEl.textContent = `${allEntries.length} event${allEntries.length !== 1 ? 's' : ''}`;
-
-    if (allEntries.length === 0) {
-      logBody.innerHTML = '<div class="empty-state">No events detected yet. Play the game and events will appear here.</div>';
-      lastRenderedCount = 0;
-      return;
-    }
-
-    // Only re-render if count changed
-    if (allEntries.length === lastRenderedCount) return;
-    lastRenderedCount = allEntries.length;
-
-    let html = '';
-    for (let i = allEntries.length - 1; i >= 0; i--) {
-      const e = allEntries[i];
-      const elapsed = (e.timestamp - startTime) / 1000;
-      const mins = Math.floor(elapsed / 60);
-      const secs = (elapsed % 60).toFixed(1);
-      const timeStr = mins > 0 ? `${mins}:${secs.padStart(4, '0')}` : `${secs}s`;
-      const isNew = i === allEntries.length - 1;
-      html += `<div class="log-entry${isNew ? ' new' : ''}">`;
-      html += `<span class="e-index">#${e.index}</span>`;
-      html += `<span class="e-time">${timeStr}</span>`;
-      html += `<span class="e-player ${e.player === 1 ? 'p1' : 'p2'}">P${e.player}</span>`;
-      html += `<span class="e-label">${e.watchLabel}</span>`;
-      html += `<span class="e-values"><span class="e-from">${e.fromName}</span> &rarr; <span class="e-to">${e.toName}</span></span>`;
-      html += `</div>`;
-    }
-    logBody.innerHTML = html;
-  }
-
-  refresh();
-  eventLogInterval = setInterval(refresh, 200);
-}
+// Event log window now handled by toolbarWindows.openEventLog()
 
 let recorderWindow: Window | null = null;
 let recorderRefreshInterval: ReturnType<typeof setInterval> | null = null;
@@ -1463,9 +1370,7 @@ function openMemoryRecorder() {
   }, 200);
 }
 
-// ── Command Palette ──────────────────────────────────────────
-let commandPaletteWindow: Window | null = null;
-
+// ── Game-specific helper functions (used by race logic) ─────
 function timeoutPlayer(playerNum: 1 | 2) {
   const emu = playerNum === 1 ? p1Emu.value : p2Emu.value;
   if (!emu) return;
@@ -1580,168 +1485,7 @@ function setTwoPlayer(playerNum: 1 | 2) {
   emu.writeMemory(ADDR_NUMBER_OF_PLAYERS, 1); // 1 = 2-player mode
 }
 
-function openCommandPalette() {
-  if (commandPaletteWindow && !commandPaletteWindow.closed) {
-    commandPaletteWindow.focus();
-    return;
-  }
-
-  commandPaletteWindow = window.open('', 'nesRacerCommandPalette', 'width=480,height=800');
-  if (!commandPaletteWindow) return;
-
-  const doc = commandPaletteWindow.document;
-  doc.write(`<!DOCTYPE html>
-<html><head><title>nesRacer — Command Palette</title>
-<style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { background: #0a0a0a; color: #ccc; font-family: 'Segoe UI', sans-serif; padding: 20px; }
-  h1 { font-size: 16px; color: #fff; margin-bottom: 16px; border-bottom: 1px solid #333; padding-bottom: 8px; }
-  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-  .cmd-btn {
-    padding: 16px 12px;
-    border: 1px solid #333;
-    border-radius: 8px;
-    background: rgba(255,255,255,0.05);
-    color: #ccc;
-    font-size: 14px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: background 0.15s, border-color 0.15s, color 0.15s;
-    text-align: center;
-    line-height: 1.3;
-  }
-  .cmd-btn:hover { background: rgba(255,255,255,0.12); border-color: #666; color: #fff; }
-  .cmd-btn:active { background: rgba(255,80,80,0.25); border-color: #e53935; }
-  .cmd-btn .label { display: block; font-size: 14px; }
-  .cmd-btn .hint { display: block; font-size: 10px; color: #888; margin-top: 4px; font-weight: normal; }
-  .cmd-btn .addr { font-family: 'Courier New', monospace; color: #4fc3f7; font-size: 10px; }
-</style>
-</head><body>
-<h1>Command Palette</h1>
-<div class="grid">
-  <button class="cmd-btn" id="timeout-p1">
-    <span class="label">Timeout P1</span>
-    <span class="hint">Set timer to 000</span>
-    <span class="addr">$07FA $07F9 $07F8 = 0</span>
-  </button>
-  <button class="cmd-btn" id="timeout-p2">
-    <span class="label">Timeout P2</span>
-    <span class="hint">Set timer to 000</span>
-    <span class="addr">$07FA $07F9 $07F8 = 0</span>
-  </button>
-  <button class="cmd-btn" id="nextlevel-p1">
-    <span class="label">Next Level P1</span>
-    <span class="hint">Advance to next level</span>
-    <span class="addr">$072C = 0, $075C += 1, $0760 += 1</span>
-  </button>
-  <button class="cmd-btn" id="nextlevel-p2">
-    <span class="label">Next Level P2</span>
-    <span class="hint">Advance to next level</span>
-    <span class="addr">$072C = 0, $075C += 1, $0760 += 1</span>
-  </button>
-  <button class="cmd-btn" id="death-p1">
-    <span class="label">Death Screen P1</span>
-    <span class="hint">Trigger death sequence</span>
-    <span class="addr">$000E = 06</span>
-  </button>
-  <button class="cmd-btn" id="death-p2">
-    <span class="label">Death Screen P2</span>
-    <span class="hint">Trigger death sequence</span>
-    <span class="addr">$000E = 06</span>
-  </button>
-  <button class="cmd-btn" id="oneplayer-p1">
-    <span class="label">1P Mode P1</span>
-    <span class="hint">Set to 1-player mode</span>
-    <span class="addr">$077A = 0</span>
-  </button>
-  <button class="cmd-btn" id="oneplayer-p2">
-    <span class="label">1P Mode P2</span>
-    <span class="hint">Set to 1-player mode</span>
-    <span class="addr">$077A = 0</span>
-  </button>
-  <button class="cmd-btn" id="twoplayer-p1">
-    <span class="label">2P Mode P1</span>
-    <span class="hint">Set to 2-player mode</span>
-    <span class="addr">$077A = 1</span>
-  </button>
-  <button class="cmd-btn" id="twoplayer-p2">
-    <span class="label">2P Mode P2</span>
-    <span class="hint">Set to 2-player mode</span>
-    <span class="addr">$077A = 1</span>
-  </button>
-  <button class="cmd-btn" id="color-p1">
-    <span class="label">Color P1</span>
-    <span class="hint">Cycle palette index</span>
-    <span class="addr" id="color-p1-idx">idx: ${p1CurrentPalette.value}</span>
-  </button>
-  <button class="cmd-btn" id="color-p2">
-    <span class="label">Color P2</span>
-    <span class="hint">Cycle palette index</span>
-    <span class="addr" id="color-p2-idx">idx: ${p2CurrentPalette.value}</span>
-  </button>
-  <button class="cmd-btn" id="mario-p1">
-    <span class="label">Force Mario P1</span>
-    <span class="hint">Switch to Mario</span>
-    <span class="addr">$077A = 0, $0753 = 0</span>
-  </button>
-  <button class="cmd-btn" id="mario-p2">
-    <span class="label">Force Mario P2</span>
-    <span class="hint">Switch to Mario</span>
-    <span class="addr">$077A = 0, $0753 = 0</span>
-  </button>
-  <button class="cmd-btn" id="luigi-p1">
-    <span class="label">Force Luigi P1</span>
-    <span class="hint">Switch to Luigi</span>
-    <span class="addr">$0753 = 1</span>
-  </button>
-  <button class="cmd-btn" id="luigi-p2">
-    <span class="label">Force Luigi P2</span>
-    <span class="hint">Switch to Luigi</span>
-    <span class="addr">$0753 = 1</span>
-  </button>
-</div>
-</body></html>`);
-  doc.close();
-
-  // Resize window to fit content with no scrollbars
-  const win = commandPaletteWindow;
-  const body = doc.body;
-  const contentWidth = body.scrollWidth;
-  const contentHeight = body.scrollHeight;
-  const chromeWidth = win.outerWidth - win.innerWidth;
-  const chromeHeight = win.outerHeight - win.innerHeight;
-  win.resizeTo(contentWidth + chromeWidth, contentHeight + chromeHeight);
-
-  doc.getElementById('timeout-p1')!.addEventListener('click', () => timeoutPlayer(1));
-  doc.getElementById('timeout-p2')!.addEventListener('click', () => timeoutPlayer(2));
-  doc.getElementById('nextlevel-p1')!.addEventListener('click', () => nextLevelPlayer(1));
-  doc.getElementById('nextlevel-p2')!.addEventListener('click', () => nextLevelPlayer(2));
-  doc.getElementById('death-p1')!.addEventListener('click', () => deathScreenPlayer(1));
-  doc.getElementById('death-p2')!.addEventListener('click', () => deathScreenPlayer(2));
-  doc.getElementById('oneplayer-p1')!.addEventListener('click', () => setOnePlayer(1));
-  doc.getElementById('oneplayer-p2')!.addEventListener('click', () => setOnePlayer(2));
-  doc.getElementById('twoplayer-p1')!.addEventListener('click', () => setTwoPlayer(1));
-  doc.getElementById('twoplayer-p2')!.addEventListener('click', () => setTwoPlayer(2));
-  doc.getElementById('color-p1')!.addEventListener('click', () => {
-    // if (allPalettes.length === 0) return;
-    // p1PaletteIndex.value = (p1PaletteIndex.value + 1) % p1CurrentPalette.length;
-    localStorage.setItem('nesRacer:p1PaletteIndex', String(p1CurrentPalette.value));
-    // changePlayerColor(1, p1CurrentPalette.value);
-    p1CurrentPalette.value += 1;
-    doc.getElementById('color-p1-idx')!.textContent = 'idx: ' + p1CurrentPalette.value;
-  });
-  doc.getElementById('color-p2')!.addEventListener('click', () => {
-
-    localStorage.setItem('nesRacer:p2PaletteIndex', String(p2CurrentPalette.value));
-    p2CurrentPalette.value += 1;
-    // changePlayerColor(2, p2CurrentPalette.value);
-    doc.getElementById('color-p2-idx')!.textContent = 'idx: ' + p2CurrentPalette.value;
-  });
-  doc.getElementById('mario-p1')!.addEventListener('click', () => forceMarioPlayer(1));
-  doc.getElementById('mario-p2')!.addEventListener('click', () => forceMarioPlayer(2));
-  doc.getElementById('luigi-p1')!.addEventListener('click', () => forceLuigiPlayer(1));
-  doc.getElementById('luigi-p2')!.addEventListener('click', () => forceLuigiPlayer(2));
-}
+// Command palette now handled by toolbarWindows.openCommandPalette()
 
 // Debug: F9 = skip level (P1 warps to next level)
 function onDebugKey(e: KeyboardEvent) {
@@ -1758,9 +1502,7 @@ onUnmounted(() => {
   if (recorderRefreshInterval) clearInterval(recorderRefreshInterval);
   if (recorderWindow && !recorderWindow.closed) recorderWindow.close();
   if (recorder.isRecording.value) recorder.stopRecording();
-  if (eventLogInterval) clearInterval(eventLogInterval);
-  if (eventLogWindow && !eventLogWindow.closed) eventLogWindow.close();
-  if (commandPaletteWindow && !commandPaletteWindow.closed) commandPaletteWindow.close();
+  // Event log + command palette windows cleaned up by toolbarWindows (auto onUnmounted)
   eventLogUnsubscribers.forEach(unsub => unsub());
   eventLog.reset();
 });
@@ -1811,6 +1553,8 @@ function startCountdown(): Promise<void> {
       :connected-pads="connectedPads"
       :pad-player-map="padPlayerMap"
       :bare-mode="bareMode"
+      :genie-codes="genieCodes"
+      :pixelated="pixelated"
       @quit="handleBack"
       @update:volume="handleVolumeChange"
       @toggle-mute="handleMuteToggle"
@@ -1823,12 +1567,14 @@ function startCountdown(): Promise<void> {
       @toggle-god-mode="handleToggleGodMode"
       @open-memory="openMemoryViewer"
       @open-recorder="openMemoryRecorder"
-      @open-event-log="openEventLog"
-      @open-command-palette="openCommandPalette"
+      @open-event-log="toolbarWindows.openEventLog"
+      @open-command-palette="toolbarWindows.openCommandPalette"
       @restart-level="handleRestartLevel"
       @toggle-pause="handleTogglePause"
       @open-bindings="handleOpenBindings"
       @toggle-bare-mode="toggleBareMode"
+      @toggle-genie-code="handleToggleGenieCode"
+      @toggle-pixelated="togglePixelated"
     />
 
     <BindDialog
@@ -1846,10 +1592,11 @@ function startCountdown(): Promise<void> {
         <div v-if="countdownText" class="countdown-overlay" :key="countdownText">{{ countdownText }}</div>
         <div v-if="p1Paused" class="debug-paused">PAUSED</div>
         <NesScreen
-          :rom-url="ROM_URL"
+          :rom-url="props.romUrl"
           :player-id="1"
           :paused="false"
           :enable-audio="true"
+          :pixelated="pixelated"
           @ready="onP1Ready"
         />
        <div v-if="p1Banner" class="player-banner" :class="p1Banner">
@@ -1868,10 +1615,11 @@ function startCountdown(): Promise<void> {
         <div v-if="countdownText" class="countdown-overlay" :key="countdownText">{{ countdownText }}</div>
         <div v-if="p2Paused" class="debug-paused">PAUSED</div>
         <NesScreen
-          :rom-url="ROM_URL"
+          :rom-url="props.romUrl"
           :player-id="2"
           :paused="false"
           :enable-audio="true"
+          :pixelated="pixelated"
           @ready="onP2Ready"
         />
         <div v-if="p2Banner" class="player-banner" :class="p2Banner">
