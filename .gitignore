@@ -2,6 +2,7 @@ node_modules
 dist
 *.local
 roms/*.nes
+src/assets/artwork/nes/
 .DS_Store
 .idea
 .claude

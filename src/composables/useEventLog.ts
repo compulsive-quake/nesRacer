@@ -32,7 +32,7 @@ const WATCHED_ADDRESSES: WatchedAddress[] = [
   },
   {
     label: 'Level loading',
-    addr: 0x0770,
+    addr: 0x0772,
     values: {
       0x00: 'Restarts Level',
       0x01: 'start of level',
@@ -59,6 +59,20 @@ const WATCHED_ADDRESSES: WatchedAddress[] = [
       0x0C: 'Fire Mario transform',
     }
   },
+  {
+    label: 'Pre-Level Screen Timer',
+    addr: 0x07A0,
+    values: {
+      0x07: '7 seconds left',
+      0x06: '6 seconds left',
+      0x05: '5 seconds left',
+      0x04: '4 seconds left',
+      0x03: '3 seconds left',
+      0x02: '2 seconds left',
+      0x01: '1 seconds left',
+      0x00: '0 seconds left',
+    }
+  }
 ];
 
 // Singleton state
@@ -86,11 +100,6 @@ export function useEventLog() {
       const current = readMemory(watch.addr);
       const previous = prev[watch.addr];
 
-      // Debug: track 0x0770 changes
-      if (watch.addr === 0x0770 && current !== previous) {
-        console.log(`[EventLog] P${player} $0770: ${previous} → ${current}`);
-      }
-
       // Log any change (skip first read to establish baseline)
       if (previous !== undefined && current !== previous) {
         entryCounter.value++;
@@ -117,6 +126,14 @@ export function useEventLog() {
     entries.value = [];
   }
 
+  function reset() {
+    entries.value = [];
+    entryCounter.value = 0;
+    prevValues[1] = {};
+    prevValues[2] = {};
+    subscribers.clear();
+  }
+
   const count = computed(() => entries.value.length);
 
   function subscribe(callback: (entry: LogEntry) => void): () => void {
@@ -129,6 +146,7 @@ export function useEventLog() {
     count,
     poll,
     clear,
+    reset,
     subscribe,
     watchedAddresses: WATCHED_ADDRESSES,
   };

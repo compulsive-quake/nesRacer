@@ -13,8 +13,7 @@ import { useMemoryRecorder } from '../composables/useMemoryRecorder';
 import { useEventLog, type LogEntry } from '../composables/useEventLog';
 import type { NesEmulator } from '../types';
 
-const { subscribe } = useEventLog();
-const ROM_URL = '/roms/Super Mario Bros. (JU) (PRG0) [!].nes';
+const ROM_URL = '/roms/Super Mario Bros. (World).nes';
 
 const emit = defineEmits<{
   backToLobby: []
@@ -213,7 +212,7 @@ function patchMarioName(nes: any) {
 function onP1Ready(emu: NesEmulator) {
   p1Emu.value = emu;
   // Pause immediately — wait for race start
-  emu.pause();
+  // emu.pause();
   const vol = muted.value ? 0 : volume.value;
   emu.setVolume(p1Sound.value ? vol : 0);
   checkBothReady();
@@ -221,7 +220,7 @@ function onP1Ready(emu: NesEmulator) {
 
 function onP2Ready(emu: NesEmulator) {
   p2Emu.value = emu;
-  emu.pause();
+  // emu.pause();
   // Mute P2 after audio ramp finishes (1s silence + 0.3s fade in)
   const vol = muted.value ? 0 : volume.value;
   setTimeout(() => emu.setVolume(p2Sound.value ? vol : 0), 1500);
@@ -297,9 +296,7 @@ function checkBothReady() {
   });
 
   // Auto-press Start to get past title screen on both
-  // P2 selects 2-player mode first so the game initializes Luigi data
   skipTitleScreen(p1Emu.value);
-  // skipTitleScreenAsLuigi(p2Emu.value);
   skipTitleScreen(p2Emu.value);
 
   // Start the race!
@@ -328,55 +325,67 @@ function skipTitleScreen(emu: NesEmulator) {
 function startRace() {
   // Wait for title screen skipping to complete
   setTimeout(() => {
+    // console.log(`starting race`);
     race.startRace({
       onRaceReady() {
+        // console.log(`onRaceReady`);
         // Unpause both emulators — no countdown, race starts immediately
-        p1Emu.value?.resume();
-        p2Emu.value?.resume();
+        // p1Emu.value?.resume();
+        // p2Emu.value?.resume();
       },
       onLevelWin(winner: 1 | 2) {
-
-        const loser = winner !== 1 ? 1 : 2;
-        timeoutPlayer(loser);
-        nextLevelPlayer(loser);
-      },
-      onWinnerReachedNextLevel(winner: 1 | 2, world: number, level: number) {
         const loser = winner !== 1 ? 1 : 2;
         const winnerEmu = winner === 1 ? p1Emu.value : p2Emu.value;
         const loserEmu = winner === 1 ? p2Emu.value : p1Emu.value;
-
         let p1Ready = false;
         let p2Ready = false;
-
-        deathScreenPlayer(loser);
-        watchWinnerAndSyncLoser(winner, world, level);
-
+        let loserPaused = false;
+        let alreadyResumed = false;
+        console.log(`about to subscribe`)
         // Subscribe — callback fires on every new LogEntry
-        const unsubscribe = subscribe((entry) => {
-          if (entry.addr === 0x000E && entry.toValue === 0x08) {
+        const unsubscribe = eventLog.subscribe((entry) => {
 
-            if (entry.player === 1) {
-              p1Ready = true;
-              if (p1Ready && p2Ready) {
-                p1Emu.value?.resume();
-                p2Emu.value?.resume();
-                unsubscribe();
-              } else {
-                p1Emu.value?.pause();
-              }
-            } else {
-              p2Ready = true;
-              if (p1Ready && p2Ready) {
-                p1Emu.value?.resume();
-                p2Emu.value?.resume();
-                unsubscribe();
-              } else {
-                p2Emu.value?.pause();
-              }
+          if (entry.addr === 0x07A0) {
+            
+            if (entry.player === loser && entry.toValue === 6 && !loserPaused && !alreadyResumed) {
+              console.log(`pausing because loser entered score screen`);
+              loserPaused = true;
+              loserEmu?.pause();
+            }
+            if (entry.player === winner && entry.toValue === 6 && loserPaused && !alreadyResumed) {
+              console.log(`resuming because winner entered score screen`);
+              alreadyResumed = true;
+              loserEmu?.resume();
             }
           }
+
+          if (entry.addr === 0x000E && entry.toValue === 0x08) {
+            p1Emu.value?.pause();
+            p2Emu.value?.pause();
+            startCountdown().then(()=>{
+              console.log(`countdown over`);
+              p1Emu.value?.resume();
+              p2Emu.value?.resume();
+              startRace();
+              unsubscribe();
+            });
+          }
+          if (entry.addr === 0x0772) {
+            // console.log(`level loading`);
+          }
+
         });
 
+        eventLogUnsubscribers.push(unsubscribe);
+
+        // // const loser = winner !== 1 ? 1 : 2;
+        // timeoutPlayer(loser);
+        deathScreenPlayer(loser);
+        nextLevelPlayer(loser);
+      },
+      onWinnerReachedNextLevel(winner: 1 | 2, world: number, level: number) {
+        console.log(`onWinner ReachedNextLevel`);
+        // watchWinnerAndSyncLoser(winner, world, level);
       },
     });
   }, 3000);
@@ -398,10 +407,10 @@ function watchWinnerAndSyncLoser(winner: 1 | 2, targetWorld: number, targetLevel
   setTimeout(() => {
     if (!resolved) {
       resolved = true;
-      if (warpInterval) clearInterval(warpInterval);
-      winnerEmu.pause();
-      loserEmu.pause();
-      finishTransition(loserEmu, winner);
+      // if (warpInterval) clearInterval(warpInterval);
+      // winnerEmu.pause();
+      // loserEmu.pause();
+      // finishTransition(loserEmu, winner);
     }
   }, 15000);
 }
@@ -427,8 +436,8 @@ function handleNextScreen() {
   const p1 = p1Emu.value;
   if (!p1) return;
   // Advance P1 to the next screen within the current level
-  const current = p1.readMemory(0x071b);
-  p1.writeMemory(0x071b, current + 1);
+  // const current = p1.readMemory(0x071b);
+  // p1.writeMemory(0x071b, current + 1);
 }
 
 function handleToggleGodMode() {
@@ -1687,7 +1696,34 @@ onUnmounted(() => {
   if (eventLogWindow && !eventLogWindow.closed) eventLogWindow.close();
   if (commandPaletteWindow && !commandPaletteWindow.closed) commandPaletteWindow.close();
   eventLogUnsubscribers.forEach(unsub => unsub());
+  eventLog.reset();
 });
+
+// --- Countdown ---
+const countdownText = ref<string | null>(null);
+let countdownTimer: ReturnType<typeof setTimeout> | null = null;
+
+function startCountdown(): Promise<void> {
+  return new Promise((resolve) => {
+    const steps = ['3', '2', '1', 'GO!'];
+    let i = 0;
+
+    function tick() {
+      countdownText.value = steps[i];
+      i++;
+      if (i < steps.length) {
+        countdownTimer = setTimeout(tick, 1000);
+      } else {
+        countdownTimer = setTimeout(() => {
+          countdownText.value = null;
+          resolve();
+        }, 600);
+      }
+    }
+
+    tick();
+  });
+}
 </script>
 
 <template>
@@ -1735,6 +1771,7 @@ onUnmounted(() => {
 
     <div class="screens">
       <div class="player-screen">
+        <div v-if="countdownText" class="countdown-overlay" :key="countdownText">{{ countdownText }}</div>
         <div v-if="p1Paused" class="debug-paused">PAUSED</div>
         <NesScreen
           :rom-url="ROM_URL"
@@ -1756,6 +1793,7 @@ onUnmounted(() => {
       </div>
       <div class="divider" />
       <div class="player-screen">
+        <div v-if="countdownText" class="countdown-overlay" :key="countdownText">{{ countdownText }}</div>
         <div v-if="p2Paused" class="debug-paused">PAUSED</div>
         <NesScreen
           :rom-url="ROM_URL"
@@ -1858,6 +1896,27 @@ onUnmounted(() => {
 @keyframes banner-pop {
   0% { transform: scale(0); opacity: 0; }
   60% { transform: scale(1.15); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.countdown-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 3rem;
+  color: #fff;
+  text-shadow: 0 0 20px rgba(230, 57, 70, 0.8), 0 4px 8px rgba(0, 0, 0, 0.6);
+  z-index: 10;
+  pointer-events: none;
+  animation: countdown-pop 0.4s ease-out;
+}
+
+@keyframes countdown-pop {
+  0% { transform: scale(2); opacity: 0; }
+  50% { transform: scale(0.9); opacity: 1; }
   100% { transform: scale(1); opacity: 1; }
 }
 

@@ -1,13 +1,14 @@
 {
   "name": "nesracer",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc -b && vite build",
     "preview": "vite preview",
     "lint": "eslint .",
-    "lint:fix": "eslint . --fix"
+    "lint:fix": "eslint . --fix",
+    "copy:nes-artwork": "robocopy \"\\\\verynas\\Games\\Download Service\\Nintendo_NES\" \".\\src\\assets\\artwork\\nes\" /E /NFL /NDL /NJH /NJS || if %errorlevel% leq 7 exit /b 0"
   },
   "dependencies": {
     "jsnes": "^2.0.0",
