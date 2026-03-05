@@ -4,7 +4,8 @@ import type { GameInfo } from '../types'
 import GameCarousel from './GameCarousel.vue'
 
 const emit = defineEmits<{
-  startLocal: []
+  startLocal: [romUrl: string]
+  startSingle: [romUrl: string]
 }>()
 
 const selectedGame = ref<GameInfo | null>(null)
@@ -12,6 +13,11 @@ const filterQuery = ref('')
 
 function onGameSelected(game: GameInfo) {
   selectedGame.value = game
+}
+
+function romUrl(): string {
+  if (!selectedGame.value) return ''
+  return `/roms/${selectedGame.value.filename.replace(/\.png$/, '.nes')}`
 }
 </script>
 
@@ -40,9 +46,15 @@ function onGameSelected(game: GameInfo) {
     />
 
     <div class="modes">
-      <button class="mode-btn local" @click="emit('startLocal')">
+      <button class="mode-btn local" @click="emit('startSingle', romUrl())">
+        <div class="mode-icon">&#x1F579;</div>
+        <div class="mode-label">Single Player</div>
+        <div class="mode-desc">Play solo, full screen</div>
+      </button>
+
+      <button class="mode-btn local" @click="emit('startLocal', romUrl())">
         <div class="mode-icon">&#x1F3AE;</div>
-        <div class="mode-label">Local Race</div>
+        <div class="mode-label">Split Screen</div>
         <div class="mode-desc">Two players, one screen</div>
       </button>
 

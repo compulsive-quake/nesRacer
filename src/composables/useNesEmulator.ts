@@ -1,4 +1,4 @@
-import { ref, shallowRef, onUnmounted } from 'vue';
+import { ref, onUnmounted } from 'vue';
 import { NES, Controller } from 'jsnes';
 
 export function useNesEmulator(enableAudio = false) {
@@ -6,24 +6,28 @@ export function useNesEmulator(enableAudio = false) {
   const running = ref(false);
   const paused = ref(false);
 
+  // Plain boolean mirrors for the hot rAF loop — avoids Vue Proxy overhead every frame
+  let _running = false;
+  let _paused = false;
+
   let nes: NES | null = null;
   let ctx: CanvasRenderingContext2D | null = null;
   let imageData: ImageData | null = null;
   let frameBuf32: Uint32Array | null = null;
   let animFrameId: number | null = null;
   let lastFrameTime = 0;
-  let accumulator = 0;
-  const NES_FRAME_MS = 1000 / 60;
+  const NES_FPS = 60.098; // actual NES frame rate
+  const NES_FRAME_MS = 1000 / NES_FPS;
+  let frameDirty = false;
 
-  // Audio — ring buffer to avoid array allocations in the hot audio callback
+  // Audio — batch samples on main thread and post to AudioWorklet
   let audioCtx: AudioContext | null = null;
-  const audioBufferSize = 8192;
-  const audioRingL = new Float32Array(audioBufferSize);
-  const audioRingR = new Float32Array(audioBufferSize);
-  let audioWritePos = 0;
-  let audioReadPos = 0;
-  let audioScriptNode: ScriptProcessorNode | null = null;
+  let audioWorkletNode: AudioWorkletNode | null = null;
   let gainNode: GainNode | null = null;
+  const audioBatchSize = 512;
+  let audioBatchL = new Float32Array(audioBatchSize);
+  let audioBatchR = new Float32Array(audioBatchSize);
+  let audioBatchPos = 0;
 
   // Plain variable — no Vue reactivity overhead in the hot loop
   let _onFrameCallback: ((nes: NES) => void) | null = null;
@@ -31,23 +35,28 @@ export function useNesEmulator(enableAudio = false) {
   function init() {
     nes = new NES({
       onFrame(frameBuffer: Int32Array) {
-        if (!ctx || !imageData || !frameBuf32) return;
-        // Uint32Array bulk copy: 1 write per pixel instead of 4 byte writes
-        // jsnes pixels: R[0:7] | G[8:15] | B[16:23]
-        // ImageData on little-endian: Uint32 = 0xAABBGGRR → bytes [R,G,B,A]
-        // So we just set alpha=0xFF and keep the rest as-is
+        if (!frameBuf32) return;
+        // Write pixels into the ImageData buffer but DON'T present yet.
+        // putImageData is deferred to once per rAF tick (after the catch-up loop)
+        // to avoid redundant canvas paints on intermediate frames.
         for (let i = 0; i < frameBuffer.length; i++) {
           frameBuf32[i] = 0xFF000000 | (frameBuffer[i] & 0x00FFFFFF);
         }
-        ctx.putImageData(imageData, 0, 0);
+        frameDirty = true;
       },
       onAudioSample: enableAudio
         ? (left: number, right: number) => {
-            const next = (audioWritePos + 1) % audioBufferSize;
-            if (next !== audioReadPos) {
-              audioRingL[audioWritePos] = left;
-              audioRingR[audioWritePos] = right;
-              audioWritePos = next;
+            audioBatchL[audioBatchPos] = left;
+            audioBatchR[audioBatchPos] = right;
+            audioBatchPos++;
+            if (audioBatchPos >= audioBatchSize) {
+              audioWorkletNode?.port.postMessage({
+                left: audioBatchL,
+                right: audioBatchR,
+              });
+              audioBatchL = new Float32Array(audioBatchSize);
+              audioBatchR = new Float32Array(audioBatchSize);
+              audioBatchPos = 0;
             }
           }
         : undefined,
@@ -59,8 +68,10 @@ export function useNesEmulator(enableAudio = false) {
 
   function setCanvas(el: HTMLCanvasElement) {
     canvas.value = el;
-    ctx = el.getContext('2d', { desynchronized: true, alpha: false })!;
-    imageData = ctx.createImageData(256, 240);
+    ctx = el.getContext('2d', { alpha: false })!;
+    ctx.fillStyle = 'black';
+    ctx.fillRect(0, 0, 256, 240);
+    imageData = ctx.getImageData(0, 0, 256, 240);
     // Create a Uint32Array view over the same buffer for fast pixel writes
     frameBuf32 = new Uint32Array(imageData.data.buffer);
   }
@@ -80,46 +91,27 @@ export function useNesEmulator(enableAudio = false) {
 
   let targetVolume = 1;
 
-  function setupAudio() {
+  async function setupAudio() {
     if (!enableAudio) return;
     audioCtx = new AudioContext({ sampleRate: 44100 });
+
+    await audioCtx.audioWorklet.addModule('nes-audio-processor.js');
+
     // Use a GainNode to fade in and avoid the initial pop
     gainNode = audioCtx.createGain();
     gainNode.gain.setValueAtTime(0, audioCtx.currentTime);
     gainNode.connect(audioCtx.destination);
 
-    audioScriptNode = audioCtx.createScriptProcessor(4096, 0, 2);
-    audioScriptNode.onaudioprocess = (e) => {
-      const left = e.outputBuffer.getChannelData(0);
-      const right = e.outputBuffer.getChannelData(1);
-      const frames = left.length;
-      let rp = audioReadPos;
-      const wp = audioWritePos;
-      let i = 0;
-      // Drain available samples from the ring buffer
-      while (i < frames && rp !== wp) {
-        left[i] = audioRingL[rp];
-        right[i] = audioRingR[rp];
-        rp = (rp + 1) % audioBufferSize;
-        i++;
-      }
-      audioReadPos = rp;
-      // Fill rest with silence
-      while (i < frames) {
-        left[i] = 0;
-        right[i] = 0;
-        i++;
-      }
-    };
-    audioScriptNode.connect(gainNode);
+    audioWorkletNode = new AudioWorkletNode(audioCtx, 'nes-audio-processor', {
+      outputChannelCount: [2],
+    });
+    audioWorkletNode.connect(gainNode);
 
     // Keep silent for 1 full second to discard startup noise, then fade in
     const startAudio = () => {
-      audioWritePos = 0;
-      audioReadPos = 0;
+      audioBatchPos = 0;
       setTimeout(() => {
-        audioWritePos = 0;
-        audioReadPos = 0;
+        audioBatchPos = 0;
         gainNode!.gain.linearRampToValueAtTime(targetVolume, audioCtx!.currentTime + 0.3);
       }, 1000);
     };
@@ -131,50 +123,81 @@ export function useNesEmulator(enableAudio = false) {
     }
   }
 
+  /** Advance emulation for this timestamp. Call from an external shared rAF loop. */
+  function tick(timestamp: number) {
+    if (!_running || !nes || _paused) return;
+
+    // Interval-aligned timing (matches jsnes FrameTimer)
+    const excess = timestamp % NES_FRAME_MS;
+    const alignedTime = timestamp - excess;
+
+    if (lastFrameTime === 0) {
+      lastFrameTime = alignedTime;
+      return;
+    }
+
+    const numFrames = Math.round((alignedTime - lastFrameTime) / NES_FRAME_MS);
+    if (numFrames === 0) return;
+
+    // Generate first frame and display it
+    nes.frame();
+    if (_onFrameCallback) _onFrameCallback(nes);
+
+    if (frameDirty && ctx && imageData) {
+      ctx.putImageData(imageData, 0, 0);
+      frameDirty = false;
+    }
+
+    // Schedule additional catch-up frames spread evenly before next rAF
+    const timeToNextFrame = NES_FRAME_MS - excess;
+    for (let i = 1; i < numFrames; i++) {
+      setTimeout(() => {
+        if (!_running || !nes || _paused) return;
+        nes.frame();
+        if (_onFrameCallback) _onFrameCallback(nes);
+      }, (i * timeToNextFrame) / numFrames);
+    }
+
+    lastFrameTime = alignedTime;
+  }
+
   function start() {
     if (!nes) return;
-    running.value = true;
-    paused.value = false;
+    _running = true; running.value = true;
+    _paused = false; paused.value = false;
     lastFrameTime = 0;
-    accumulator = 0;
+
     if (enableAudio && !audioCtx) setupAudio();
     animFrameId = requestAnimationFrame(frameLoop);
   }
 
   function frameLoop(timestamp: number) {
-    if (!running.value || !nes) return;
-    if (!paused.value) {
-      // Initialize on first callback to avoid a huge initial delta
-      if (lastFrameTime === 0) lastFrameTime = timestamp;
-
-      accumulator += timestamp - lastFrameTime;
-      lastFrameTime = timestamp;
-
-      // Cap to 3 frames to prevent spiral-of-death after tab switch / debugger pause
-      if (accumulator > NES_FRAME_MS * 3) accumulator = NES_FRAME_MS * 3;
-
-      while (accumulator >= NES_FRAME_MS) {
-        nes.frame();
-        if (_onFrameCallback) _onFrameCallback(nes);
-        accumulator -= NES_FRAME_MS;
-      }
-    }
+    if (!_running || !nes) return;
+    tick(timestamp);
     animFrameId = requestAnimationFrame(frameLoop);
   }
 
+  /** Stop the self-driven rAF loop (for when an external loop takes over). */
+  function stopSelfDrive() {
+    if (animFrameId !== null) {
+      cancelAnimationFrame(animFrameId);
+      animFrameId = null;
+    }
+  }
+
   function pause() {
-    paused.value = true;
+    _paused = true; paused.value = true;
   }
 
   function resume() {
-    paused.value = false;
+    _paused = false; paused.value = false;
     // Reset timing so we don't try to catch up for the paused duration
     lastFrameTime = 0;
-    accumulator = 0;
+
   }
 
   function stop() {
-    running.value = false;
+    _running = false; running.value = false;
     if (animFrameId !== null) {
       cancelAnimationFrame(animFrameId);
       animFrameId = null;
@@ -212,10 +235,9 @@ export function useNesEmulator(enableAudio = false) {
     // Reset frame timing so the loop doesn't try to "catch up" for the
     // time spent inside fromJSON (which recreates CPU/PPU/PAPU objects).
     lastFrameTime = 0;
-    accumulator = 0;
+
     // Flush stale audio samples from before the state load
-    audioWritePos = 0;
-    audioReadPos = 0;
+    audioBatchPos = 0;
   }
 
   function getNes(): NES | null {
@@ -236,7 +258,7 @@ export function useNesEmulator(enableAudio = false) {
   onUnmounted(() => {
     stop();
     if (audioCtx) {
-      audioScriptNode?.disconnect();
+      audioWorkletNode?.disconnect();
       audioCtx.close();
     }
   });
@@ -248,6 +270,8 @@ export function useNesEmulator(enableAudio = false) {
     setCanvas,
     loadROM,
     start,
+    tick,
+    stopSelfDrive,
     pause,
     resume,
     stop,

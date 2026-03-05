@@ -10,16 +10,20 @@ import NesControllerPreview from './NesControllerPreview.vue'
 const props = defineProps<{
   p1Bindings: InputBinding
   p2Bindings: InputBinding
+  p1GamepadBindings: InputBinding
+  p2GamepadBindings: InputBinding
 }>()
 
 const emit = defineEmits<{
   close: []
-  apply: [p1: InputBinding, p2: InputBinding]
+  apply: [p1: InputBinding, p2: InputBinding, p1Gp: InputBinding, p2Gp: InputBinding]
 }>()
 
 const editP1 = ref<InputBinding>({ ...props.p1Bindings })
 const editP2 = ref<InputBinding>({ ...props.p2Bindings })
-const listeningFor = ref<{ player: 1 | 2; button: NesButton } | null>(null)
+const editP1Gp = ref<InputBinding>({ ...props.p1GamepadBindings })
+const editP2Gp = ref<InputBinding>({ ...props.p2GamepadBindings })
+const listeningFor = ref<{ player: 1 | 2; button: NesButton; source: 'keyboard' | 'gamepad' } | null>(null)
 
 const { presets, addPreset, removePreset, getPreset } = useBindingPresets()
 const selectedPresetId = ref(presets.value[0]?.id ?? '')
@@ -30,16 +34,18 @@ const BUTTON_LABELS: Record<NesButton, string> = {
   a: 'A', b: 'B', start: 'Start', select: 'Select',
 }
 
-// Conflict detection: find keys assigned more than once
+// Conflict detection: find keys assigned more than once (within same source type)
 const conflicts = computed(() => {
-  const seen = new Map<string, { player: 1 | 2; button: NesButton }[]>()
+  const seen = new Map<string, { player: 1 | 2; button: NesButton; source: string }[]>()
+  function add(code: string, player: 1 | 2, button: NesButton, source: string) {
+    if (!seen.has(code)) seen.set(code, [])
+    seen.get(code)!.push({ player, button, source })
+  }
   for (const btn of NES_BUTTONS) {
-    const k1 = editP1.value[btn]
-    const k2 = editP2.value[btn]
-    if (!seen.has(k1)) seen.set(k1, [])
-    seen.get(k1)!.push({ player: 1, button: btn })
-    if (!seen.has(k2)) seen.set(k2, [])
-    seen.get(k2)!.push({ player: 2, button: btn })
+    add(editP1.value[btn], 1, btn, 'keyboard')
+    add(editP2.value[btn], 2, btn, 'keyboard')
+    add(editP1Gp.value[btn], 1, btn, 'gamepad')
+    add(editP2Gp.value[btn], 2, btn, 'gamepad')
   }
   const dupes: string[] = []
   for (const [code, entries] of seen) {
@@ -48,13 +54,25 @@ const conflicts = computed(() => {
   return dupes
 })
 
-function hasConflict(player: 1 | 2, btn: NesButton): boolean {
-  const code = player === 1 ? editP1.value[btn] : editP2.value[btn]
-  return conflicts.value.includes(code)
+function hasConflict(player: 1 | 2, btn: NesButton, source: 'keyboard' | 'gamepad'): boolean {
+  const binding = source === 'keyboard'
+    ? (player === 1 ? editP1.value : editP2.value)
+    : (player === 1 ? editP1Gp.value : editP2Gp.value)
+  return conflicts.value.includes(binding[btn])
 }
 
-function startListening(player: 1 | 2, btn: NesButton) {
-  listeningFor.value = { player, button: btn }
+function startListening(player: 1 | 2, btn: NesButton, source: 'keyboard' | 'gamepad') {
+  listeningFor.value = { player, button: btn, source }
+}
+
+function setBinding(player: 1 | 2, button: NesButton, source: 'keyboard' | 'gamepad', code: string) {
+  if (source === 'keyboard') {
+    if (player === 1) editP1.value = { ...editP1.value, [button]: code }
+    else editP2.value = { ...editP2.value, [button]: code }
+  } else {
+    if (player === 1) editP1Gp.value = { ...editP1Gp.value, [button]: code }
+    else editP2Gp.value = { ...editP2Gp.value, [button]: code }
+  }
 }
 
 function onKeyCapture(e: KeyboardEvent) {
@@ -62,19 +80,17 @@ function onKeyCapture(e: KeyboardEvent) {
   e.preventDefault()
   e.stopPropagation()
 
-  // Escape cancels listening
   if (e.code === 'Escape') {
     listeningFor.value = null
     return
   }
 
-  const { player, button } = listeningFor.value
-  if (player === 1) {
-    editP1.value = { ...editP1.value, [button]: e.code }
-  } else {
-    editP2.value = { ...editP2.value, [button]: e.code }
+  const { player, button, source } = listeningFor.value
+  // Only accept keyboard codes for keyboard slots
+  if (source === 'keyboard') {
+    setBinding(player, button, source, e.code)
+    listeningFor.value = null
   }
-  listeningFor.value = null
 }
 
 function loadPreset() {
@@ -82,12 +98,14 @@ function loadPreset() {
   if (!preset) return
   editP1.value = { ...preset.p1 }
   editP2.value = { ...preset.p2 }
+  editP1Gp.value = { ...preset.p1Gamepad }
+  editP2Gp.value = { ...preset.p2Gamepad }
 }
 
 function savePreset() {
   const name = newPresetName.value.trim()
   if (!name) return
-  const p = addPreset(name, editP1.value, editP2.value)
+  const p = addPreset(name, editP1.value, editP2.value, editP1Gp.value, editP2Gp.value)
   selectedPresetId.value = p.id
   newPresetName.value = ''
 }
@@ -103,14 +121,14 @@ function deletePreset() {
 const pressedCodes = reactive(new Set<string>())
 
 function onPreviewKeyDown(e: KeyboardEvent) {
-  if (listeningFor.value) return // binding capture is active
+  if (listeningFor.value) return
   pressedCodes.add(e.code)
 }
 function onPreviewKeyUp(e: KeyboardEvent) {
   pressedCodes.delete(e.code)
 }
 
-// Gamepad polling for preview (runs continuously while dialog is open)
+// Gamepad polling for preview
 let previewRafId = 0
 const prevGpButtons = new Map<number, boolean[]>()
 const prevGpAxes = new Map<number, number[]>()
@@ -150,40 +168,38 @@ function pollGamepadPreview() {
   previewRafId = requestAnimationFrame(pollGamepadPreview)
 }
 
-function pressedForPlayer(bindings: InputBinding): Set<NesButton> {
+function pressedForPlayer(kbBindings: InputBinding, gpBindings: InputBinding): Set<NesButton> {
   const s = new Set<NesButton>()
   for (const btn of NES_BUTTONS) {
-    if (pressedCodes.has(bindings[btn])) s.add(btn)
+    if (pressedCodes.has(kbBindings[btn]) || pressedCodes.has(gpBindings[btn])) s.add(btn)
   }
   return s
 }
 
-const p1Pressed = computed(() => pressedForPlayer(editP1.value))
-const p2Pressed = computed(() => pressedForPlayer(editP2.value))
+const p1Pressed = computed(() => pressedForPlayer(editP1.value, editP1Gp.value))
+const p2Pressed = computed(() => pressedForPlayer(editP2.value, editP2Gp.value))
 
 function applyBindings() {
   if (conflicts.value.length > 0) return
-  emit('apply', editP1.value, editP2.value)
+  emit('apply', editP1.value, editP2.value, editP1Gp.value, editP2Gp.value)
 }
 
 // Gamepad input capture — active only while listening for a binding
 let stopGamepadListen: (() => void) | null = null
 
 watch(listeningFor, (val) => {
-  // Clean up previous listener
   if (stopGamepadListen) { stopGamepadListen(); stopGamepadListen = null }
   if (!val) return
 
-  stopGamepadListen = listenForGamepadInput((code) => {
-    if (!listeningFor.value) return
-    const { player, button } = listeningFor.value
-    if (player === 1) {
-      editP1.value = { ...editP1.value, [button]: code }
-    } else {
-      editP2.value = { ...editP2.value, [button]: code }
-    }
-    listeningFor.value = null
-  })
+  // For gamepad slots, listen for gamepad input
+  if (val.source === 'gamepad') {
+    stopGamepadListen = listenForGamepadInput((code) => {
+      if (!listeningFor.value) return
+      const { player, button, source } = listeningFor.value
+      setBinding(player, button, source, code)
+      listeningFor.value = null
+    })
+  }
 })
 
 onMounted(() => {
@@ -214,39 +230,75 @@ onUnmounted(() => {
       <div class="bind-body">
         <div class="bind-left">
           <div class="bind-columns">
+            <!-- P1 -->
             <div class="bind-col">
               <div class="bind-col-header">P1 (Mario)</div>
+              <div class="bind-sub-headers">
+                <span class="bind-action"></span>
+                <span class="bind-sub-label">Keyboard</span>
+                <span class="bind-sub-label">Controller</span>
+              </div>
               <div v-for="btn in NES_BUTTONS" :key="btn" class="bind-row">
                 <span class="bind-action">{{ BUTTON_LABELS[btn] }}</span>
                 <button
                   class="bind-key"
                   :class="{
-                    listening: listeningFor?.player === 1 && listeningFor?.button === btn,
-                    conflict: hasConflict(1, btn),
+                    listening: listeningFor?.player === 1 && listeningFor?.button === btn && listeningFor?.source === 'keyboard',
+                    conflict: hasConflict(1, btn, 'keyboard'),
                   }"
-                  @click="startListening(1, btn)"
+                  @click="startListening(1, btn, 'keyboard')"
                 >
-                  {{ listeningFor?.player === 1 && listeningFor?.button === btn
-                    ? 'Press key/button...'
+                  {{ listeningFor?.player === 1 && listeningFor?.button === btn && listeningFor?.source === 'keyboard'
+                    ? 'Press key...'
                     : keyCodeToLabel(editP1[btn]) }}
+                </button>
+                <button
+                  class="bind-key gamepad-key"
+                  :class="{
+                    listening: listeningFor?.player === 1 && listeningFor?.button === btn && listeningFor?.source === 'gamepad',
+                    conflict: hasConflict(1, btn, 'gamepad'),
+                  }"
+                  @click="startListening(1, btn, 'gamepad')"
+                >
+                  {{ listeningFor?.player === 1 && listeningFor?.button === btn && listeningFor?.source === 'gamepad'
+                    ? 'Press btn...'
+                    : keyCodeToLabel(editP1Gp[btn]) }}
                 </button>
               </div>
             </div>
+            <!-- P2 -->
             <div class="bind-col">
               <div class="bind-col-header">P2 (Luigi)</div>
+              <div class="bind-sub-headers">
+                <span class="bind-action"></span>
+                <span class="bind-sub-label">Keyboard</span>
+                <span class="bind-sub-label">Controller</span>
+              </div>
               <div v-for="btn in NES_BUTTONS" :key="btn" class="bind-row">
                 <span class="bind-action">{{ BUTTON_LABELS[btn] }}</span>
                 <button
                   class="bind-key"
                   :class="{
-                    listening: listeningFor?.player === 2 && listeningFor?.button === btn,
-                    conflict: hasConflict(2, btn),
+                    listening: listeningFor?.player === 2 && listeningFor?.button === btn && listeningFor?.source === 'keyboard',
+                    conflict: hasConflict(2, btn, 'keyboard'),
                   }"
-                  @click="startListening(2, btn)"
+                  @click="startListening(2, btn, 'keyboard')"
                 >
-                  {{ listeningFor?.player === 2 && listeningFor?.button === btn
-                    ? 'Press key/button...'
+                  {{ listeningFor?.player === 2 && listeningFor?.button === btn && listeningFor?.source === 'keyboard'
+                    ? 'Press key...'
                     : keyCodeToLabel(editP2[btn]) }}
+                </button>
+                <button
+                  class="bind-key gamepad-key"
+                  :class="{
+                    listening: listeningFor?.player === 2 && listeningFor?.button === btn && listeningFor?.source === 'gamepad',
+                    conflict: hasConflict(2, btn, 'gamepad'),
+                  }"
+                  @click="startListening(2, btn, 'gamepad')"
+                >
+                  {{ listeningFor?.player === 2 && listeningFor?.button === btn && listeningFor?.source === 'gamepad'
+                    ? 'Press btn...'
+                    : keyCodeToLabel(editP2Gp[btn]) }}
                 </button>
               </div>
             </div>
@@ -307,8 +359,8 @@ onUnmounted(() => {
   border: 1px solid #444;
   border-radius: 8px;
   padding: 1.2rem;
-  min-width: 480px;
-  max-width: 800px;
+  min-width: 580px;
+  max-width: 960px;
 }
 
 .bind-body {
@@ -365,20 +417,36 @@ onUnmounted(() => {
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: #aaa;
-  margin-bottom: 0.5rem;
+  margin-bottom: 0.3rem;
+}
+
+.bind-sub-headers {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-bottom: 0.3rem;
+}
+
+.bind-sub-label {
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #666;
+  min-width: 70px;
+  text-align: center;
 }
 
 .bind-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 0.3rem;
   margin-bottom: 0.3rem;
 }
 
 .bind-action {
   font-size: 0.78rem;
   color: #ccc;
-  min-width: 50px;
+  min-width: 42px;
 }
 
 .bind-key {
@@ -386,13 +454,17 @@ onUnmounted(() => {
   border: 1px solid #333;
   border-radius: 6px;
   color: #fff;
-  font-size: 0.75rem;
-  padding: 0.3rem 0.6rem;
-  min-width: 80px;
+  font-size: 0.68rem;
+  padding: 0.25rem 0.4rem;
+  min-width: 70px;
   text-align: center;
   cursor: pointer;
   transition: border-color 0.15s, background 0.15s;
   font-family: inherit;
+}
+
+.bind-key.gamepad-key {
+  color: #aed581;
 }
 
 .bind-key:hover {

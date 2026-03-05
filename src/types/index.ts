@@ -48,6 +48,8 @@ export interface BindingPreset {
   name: string
   p1: InputBinding
   p2: InputBinding
+  p1Gamepad: InputBinding
+  p2Gamepad: InputBinding
   builtIn?: boolean
 }
 
@@ -64,6 +66,8 @@ export interface NesEmulator {
   setCanvas: (el: HTMLCanvasElement) => void
   loadROM: (url: string) => Promise<void>
   start: () => void
+  tick: (timestamp: number) => void
+  stopSelfDrive: () => void
   pause: () => void
   resume: () => void
   stop: () => void

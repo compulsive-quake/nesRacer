@@ -88,8 +88,8 @@ function isPressed(btn: NesButton): boolean {
       <circle cx="248" cy="72" r="17" fill="#aaa" stroke="#999" stroke-width="0.5"/>
       <!-- B button -->
       <circle cx="248" cy="72" r="14"
-              :fill="isPressed('b') ? '#ff1744' : '#e53935'"
-              :stroke="isPressed('b') ? '#ff8a80' : '#c62828'" stroke-width="1"
+              :fill="isPressed('b') ? '#555' : '#e53935'"
+              :stroke="isPressed('b') ? '#777' : '#c62828'" stroke-width="1"
               class="nes-btn-hit"/>
       <!-- B label -->
       <text x="248" y="98" text-anchor="middle" fill="#c62828" font-size="7"
@@ -99,8 +99,8 @@ function isPressed(btn: NesButton): boolean {
       <circle cx="294" cy="72" r="17" fill="#aaa" stroke="#999" stroke-width="0.5"/>
       <!-- A button -->
       <circle cx="294" cy="72" r="14"
-              :fill="isPressed('a') ? '#ff1744' : '#e53935'"
-              :stroke="isPressed('a') ? '#ff8a80' : '#c62828'" stroke-width="1"
+              :fill="isPressed('a') ? '#555' : '#e53935'"
+              :stroke="isPressed('a') ? '#777' : '#c62828'" stroke-width="1"
               class="nes-btn-hit"/>
       <!-- A label -->
       <text x="294" y="98" text-anchor="middle" fill="#c62828" font-size="7"

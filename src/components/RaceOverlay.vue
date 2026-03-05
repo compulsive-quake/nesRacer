@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, watch } from 'vue';
 import type { RaceState } from '../types';
 
 const props = defineProps<{
@@ -16,7 +16,48 @@ const props = defineProps<{
   p2Sound?: boolean
   p1Music?: boolean
   p2Music?: boolean
+  connectedPads?: number[]
+  padPlayerMap?: Record<number, string>
+  bareMode?: boolean
 }>();
+
+// --- Gamepad toast notifications ---
+interface PadToast {
+  id: number
+  message: string
+  type: 'connected' | 'disconnected'
+}
+const padToasts = ref<PadToast[]>([])
+let toastId = 0
+
+function showPadToast(message: string, type: 'connected' | 'disconnected') {
+  const id = ++toastId
+  padToasts.value.push({ id, message, type })
+  setTimeout(() => {
+    padToasts.value = padToasts.value.filter(t => t.id !== id)
+  }, 6000)
+}
+
+let prevPadSet = new Set(props.connectedPads ?? [])
+
+watch(() => props.connectedPads, (curr) => {
+  const currentSet = new Set(curr ?? [])
+  for (const idx of currentSet) {
+    if (!prevPadSet.has(idx)) {
+      const player = props.padPlayerMap?.[idx]
+      const label = player ? `${player} controller` : `Controller ${idx}`
+      showPadToast(`${label} connected`, 'connected')
+    }
+  }
+  for (const idx of prevPadSet) {
+    if (!currentSet.has(idx)) {
+      const player = props.padPlayerMap?.[idx]
+      const label = player ? `${player} controller` : `Controller ${idx}`
+      showPadToast(`${label} disconnected`, 'disconnected')
+    }
+  }
+  prevPadSet = currentSet
+}, { deep: true });
 
 const emit = defineEmits<{
   quit: []
@@ -36,6 +77,7 @@ const emit = defineEmits<{
   'restart-level': [mode: number]
   'toggle-pause': []
   'open-bindings': []
+  'toggle-bare-mode': []
 }>();
 
 const showDebugPanel = ref(false);
@@ -101,19 +143,7 @@ function closeDebugPanel() {
           <rect x="9" y="2" width="4" height="12" rx="1" fill="currentColor"/>
         </svg>
       </button>
-      <span class="score-item">
-        P1: {{ state.p1Score }}
-        <span class="emu-status" :class="p1Paused ? 'paused' : 'playing'">
-          {{ p1Paused ? 'PAUSED' : 'PLAYING' }}
-        </span>
-      </span>
-      <span class="level-display">World {{ state.currentWorld }}-{{ state.currentLevel }}</span>
-      <span class="score-item">
-        P2: {{ state.p2Score }}
-        <span class="emu-status" :class="p2Paused ? 'paused' : 'playing'">
-          {{ p2Paused ? 'PAUSED' : 'PLAYING' }}
-        </span>
-      </span>
+      <div class="score-bar-right">
       <span class="fps-display" :class="{ warn: perfWarning }">
         <svg v-if="perfWarning" class="warn-icon" width="14" height="14" viewBox="0 0 16 16" fill="none">
           <path d="M8 1L1 14h14L8 1z" fill="currentColor" opacity="0.9"/>
@@ -121,6 +151,14 @@ function closeDebugPanel() {
         </svg>
         {{ fps ?? 60 }} FPS
       </span>
+      <button
+        class="bare-mode-btn"
+        :class="{ active: bareMode }"
+        @click="emit('toggle-bare-mode')"
+        title="Bare Mode — disable all per-frame watchers for stutter debugging"
+      >
+        BARE
+      </button>
       <div class="debug-wrapper">
         <button class="debug-btn" :class="{ active: showDebugPanel }" @click="toggleDebugPanel" title="Debug Tools">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
@@ -202,7 +240,26 @@ function closeDebugPanel() {
           @input="onVolumeInput"
         />
       </div>
+      </div>
+      <!-- Gamepad notifications (centered overlay on header) -->
+      <TransitionGroup name="pad-toast" tag="div" class="pad-toast-container">
+        <div
+          v-for="toast in padToasts"
+          :key="toast.id"
+          class="pad-toast"
+          :class="toast.type"
+        >
+          <svg width="24" height="24" viewBox="0 0 16 16" fill="none" class="pad-toast-icon">
+            <path d="M2 5.5C2 3.5 3.5 2 6 2h4c2.5 0 4 1.5 4 3.5v3c0 2.5-1.5 4.5-4 4.5H6c-2.5 0-4-2-4-4.5v-3z" stroke="currentColor" stroke-width="1.2" fill="none"/>
+            <circle cx="5.5" cy="6.5" r="0.8" fill="currentColor"/>
+            <circle cx="10.5" cy="6.5" r="0.8" fill="currentColor"/>
+            <path d="M4 10l1.5 3M12 10l-1.5 3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+          </svg>
+          {{ toast.message }}
+        </div>
+      </TransitionGroup>
     </div>
+
 
     <!-- Settings Modal -->
     <div v-if="showSettingsModal" class="dialog-backdrop" @click="showSettingsModal = false">
@@ -328,6 +385,7 @@ function closeDebugPanel() {
 }
 
 .score-bar {
+  position: relative;
   display: flex;
   align-items: center;
   padding: 0.5rem 1rem;
@@ -335,14 +393,6 @@ function closeDebugPanel() {
   color: #fff;
   font-size: 1rem;
   gap: 1rem;
-}
-
-.score-bar .score-item {
-  flex: 1;
-}
-
-.score-bar .score-item:last-child {
-  text-align: right;
 }
 
 .quit-btn {
@@ -385,27 +435,12 @@ function closeDebugPanel() {
   color: #fff;
 }
 
-.level-display {
-  color: #aaa;
-}
-
-.emu-status {
-  font-size: 0.6rem;
-  padding: 1px 5px;
-  border-radius: 3px;
-  margin-left: 0.4rem;
-  font-variant-numeric: tabular-nums;
-  vertical-align: middle;
-}
-
-.emu-status.playing {
-  color: #4caf50;
-  background: rgba(76, 175, 80, 0.15);
-}
-
-.emu-status.paused {
-  color: #ff4444;
-  background: rgba(255, 68, 68, 0.15);
+.score-bar-right {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+  margin-left: auto;
 }
 
 .fps-display {
@@ -424,6 +459,31 @@ function closeDebugPanel() {
 
 .warn-icon {
   flex-shrink: 0;
+}
+
+.bare-mode-btn {
+  padding: 2px 6px;
+  border: 1px solid #555;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #666;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s, border-color 0.2s;
+  flex-shrink: 0;
+}
+
+.bare-mode-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #aaa;
+}
+
+.bare-mode-btn.active {
+  background: rgba(255, 140, 0, 0.25);
+  border-color: #ff8c00;
+  color: #ff8c00;
 }
 
 .debug-wrapper {
@@ -788,5 +848,66 @@ function closeDebugPanel() {
   font-weight: bold;
   margin-left: 0.4rem;
   line-height: 1;
+}
+
+.pad-toast-container {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  z-index: 10;
+  pointer-events: none;
+  padding-top: 0.5rem;
+}
+
+.pad-toast {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 1.2rem;
+  border-radius: 8px;
+  font-size: 1.1rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  pointer-events: auto;
+}
+
+.pad-toast.connected {
+  background: #1b3a1c;
+  border: 1.5px solid #4caf50;
+  color: #81c784;
+}
+
+.pad-toast.disconnected {
+  background: #3a1616;
+  border: 1.5px solid #e53935;
+  color: #ef5350;
+}
+
+.pad-toast-icon {
+  flex-shrink: 0;
+}
+
+.pad-toast-enter-active {
+  transition: all 0.3s ease-out;
+}
+
+.pad-toast-leave-active {
+  transition: all 0.3s ease-in;
+}
+
+.pad-toast-enter-from {
+  opacity: 0;
+  transform: scale(0.85);
+}
+
+.pad-toast-leave-to {
+  opacity: 0;
+  transform: scale(0.85);
 }
 </style>

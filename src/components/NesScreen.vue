@@ -63,6 +63,7 @@ watch(() => props.paused, (isPaused) => {
   display: flex;
   align-items: center;
   justify-content: center;
+  contain: layout style;
 }
 
 canvas {

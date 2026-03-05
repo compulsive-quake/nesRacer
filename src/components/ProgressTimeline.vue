@@ -251,6 +251,7 @@ function levelPercent(index: number) {
   border-top: 1px solid #333;
   user-select: none;
   flex-shrink: 0;
+  contain: layout style;
 }
 
 .timeline-track {
@@ -373,7 +374,6 @@ function levelPercent(index: number) {
 .flag-winner-icon {
   position: absolute;
   top: 2px;
-  filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.8));
   animation: icon-pop 0.3s ease-out;
 }
 
@@ -401,7 +401,6 @@ function levelPercent(index: number) {
   align-items: center;
   transition: left 0.8s cubic-bezier(0.34, 1.56, 0.64, 1);
   z-index: 5;
-  filter: drop-shadow(0 0 3px rgba(0, 0, 0, 0.8));
 }
 
 .player-sprite.mario {

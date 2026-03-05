@@ -46,29 +46,31 @@ export function useGameDetector() {
   let levelCompleteEmitted = false;
 
   function poll(readMemory: (addr: number) => number): GameState {
-    state.operMode = readMemory(ADDR.OPER_MODE);
-    state.world = readMemory(ADDR.WORLD_NUMBER) + 1;
-    state.level = readMemory(ADDR.LEVEL_NUMBER) + 1;
-    state.lives = readMemory(ADDR.LIVES);
-    state.gameEngineState = readMemory(ADDR.GAME_ENGINE_SUB);
-
+    // Read raw values into locals first, then only write to reactive state
+    // when changed — avoids triggering Vue proxy traps 960 times/sec
+    const operMode = readMemory(ADDR.OPER_MODE);
+    const world = readMemory(ADDR.WORLD_NUMBER) + 1;
+    const level = readMemory(ADDR.LEVEL_NUMBER) + 1;
+    const lives = readMemory(ADDR.LIVES);
+    const geSub = readMemory(ADDR.GAME_ENGINE_SUB);
     const page = readMemory(ADDR.PLAYER_PAGE);
     const x = readMemory(ADDR.PLAYER_X);
-    state.playerX = page * 256 + x;
-    state.playerY = readMemory(ADDR.PLAYER_Y);
+    const playerX = page * 256 + x;
+    const playerY = readMemory(ADDR.PLAYER_Y);
+    const isDead = geSub === 6 || geSub === 11;
+    const isLevelComplete = geSub === 4 || geSub === 5 || operMode === 0x02;
 
-    const geSub = state.gameEngineState;
+    if (state.operMode !== operMode) state.operMode = operMode;
+    if (state.world !== world) state.world = world;
+    if (state.level !== level) state.level = level;
+    if (state.lives !== lives) state.lives = lives;
+    if (state.gameEngineState !== geSub) state.gameEngineState = geSub;
+    if (state.playerX !== playerX) state.playerX = playerX;
+    if (state.playerY !== playerY) state.playerY = playerY;
+    if (state.isDead !== isDead) state.isDead = isDead;
+    if (state.isLevelComplete !== isLevelComplete) state.isLevelComplete = isLevelComplete;
 
-    // Dead: 6=PlayerLoseLife, 11=PlayerDeath (falling off screen)
-    state.isDead = geSub === 6 || geSub === 11;
-
-    // Level complete detection:
-    // Flagpole levels (X-1, X-2, X-3): geSub 4=FlagpoleSlide or 5=PlayerEndLevel
-    // Castle levels (X-4): OperMode 2 = VictoryMode (axe touched, bridge collapses)
-    state.isLevelComplete =
-      geSub === 4 || geSub === 5 || state.operMode === 0x02;
-
-    prevOperMode = state.operMode;
+    prevOperMode = operMode;
     return state;
   }
 

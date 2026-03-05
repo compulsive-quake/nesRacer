@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {ref, shallowRef, computed, onUnmounted, Ref, UnwrapRef} from 'vue';
+import {ref, shallowRef, computed, watch, onUnmounted, Ref, UnwrapRef} from 'vue';
 import NesScreen from './NesScreen.vue';
 import RaceOverlay from './RaceOverlay.vue';
 import ProgressTimeline from './ProgressTimeline.vue';
@@ -7,7 +7,7 @@ import WaypointPanel from './WaypointPanel.vue';
 import BindDialog from './BindDialog.vue';
 import { useGameDetector } from '../composables/useGameDetector';
 import { useRaceManager } from '../composables/useRaceManager';
-import { useInputManager, DEFAULT_P1, DEFAULT_P2 } from '../composables/useInputManager';
+import { useInputManager, DEFAULT_P1, DEFAULT_P2, DEFAULT_P1_GAMEPAD, DEFAULT_P2_GAMEPAD } from '../composables/useInputManager';
 import { useWaypoints, type Waypoint } from '../composables/useWaypoints';
 import { useMemoryRecorder } from '../composables/useMemoryRecorder';
 import { useEventLog, type LogEntry } from '../composables/useEventLog';
@@ -22,6 +22,8 @@ const emit = defineEmits<{
 const p1Emu = shallowRef<NesEmulator | null>(null);
 const p2Emu = shallowRef<NesEmulator | null>(null);
 const bothReady = ref(false);
+// Shared rAF loop — drives both emulators from a single requestAnimationFrame
+let sharedRafId: number | null = null;
 const volume = ref(parseFloat(localStorage.getItem('nesRacer:volume') ?? '0.5'));
 const muted = ref(localStorage.getItem('nesRacer:muted') === 'true');
 const godMode = ref(localStorage.getItem('nesRacer:godMode') === 'true');
@@ -31,6 +33,28 @@ const p1Music = ref(localStorage.getItem('nesRacer:p1Music') !== 'false');
 const p2Music = ref(localStorage.getItem('nesRacer:p2Music') === 'true');
 const p1CurrentPalette = ref(1)
 const p2CurrentPalette = ref(1)
+const bareMode = ref(false)
+// Plain boolean mirror of bareMode for hot frame callbacks — avoids Vue reactive overhead every frame
+let bareModeRaw = false
+
+function toggleBareMode() {
+  bareMode.value = !bareMode.value
+  bareModeRaw = bareMode.value
+  if (bareMode.value) {
+    // Stop all debug refresh intervals to eliminate timer overhead
+    if (memoryInterval) { clearInterval(memoryInterval); memoryInterval = null; }
+    if (eventLogInterval) { clearInterval(eventLogInterval); eventLogInterval = null; }
+    if (recorderRefreshInterval) { clearInterval(recorderRefreshInterval); recorderRefreshInterval = null; }
+    // Stop any active recording
+    if (recorder.isRecording.value) recorder.stopRecording();
+    // Stop gamepad polling to eliminate rAF overhead
+    inputManager?.stopGamepad();
+  } else {
+    // Resume gamepad polling
+    inputManager?.startGamepad();
+  }
+}
+
 // const p1PaletteIndex = ref(Number(localStorage.getItem('nesRacer:p1PaletteIndex')) || 0);
 // const p2PaletteIndex = ref(Number(localStorage.getItem('nesRacer:p2PaletteIndex')) || 0);
 // let allPalettes: number[] = [];
@@ -126,23 +150,40 @@ function onEventLog(
 }
 
 let inputManager: ReturnType<typeof useInputManager> | null = null;
+const connectedPads = ref<number[]>([]);
+const padPlayerMap = computed<Record<number, string>>(() => {
+  const map: Record<number, string> = {};
+  const p1Code = currentP1GpBindings.value.a || '';
+  const p2Code = currentP2GpBindings.value.a || '';
+  const m1 = p1Code.match(/^GP(\d+):/);
+  const m2 = p2Code.match(/^GP(\d+):/);
+  if (m1) map[parseInt(m1[1])] = 'P1';
+  if (m2) map[parseInt(m2[1])] = 'P2';
+  return map;
+});
 const showBindDialog = ref(false);
 const currentP1Bindings = ref<import('../types').InputBinding>({ ...DEFAULT_P1 });
 const currentP2Bindings = ref<import('../types').InputBinding>({ ...DEFAULT_P2 });
+const currentP1GpBindings = ref<import('../types').InputBinding>({ ...DEFAULT_P1_GAMEPAD });
+const currentP2GpBindings = ref<import('../types').InputBinding>({ ...DEFAULT_P2_GAMEPAD });
 
 function handleOpenBindings() {
   if (inputManager) {
     currentP1Bindings.value = { ...inputManager.p1Bindings.value };
     currentP2Bindings.value = { ...inputManager.p2Bindings.value };
+    currentP1GpBindings.value = { ...inputManager.p1GamepadBindings.value };
+    currentP2GpBindings.value = { ...inputManager.p2GamepadBindings.value };
   }
   inputManager?.detach();
   showBindDialog.value = true;
 }
 
-function handleBindingsApply(p1: import('../types').InputBinding, p2: import('../types').InputBinding) {
-  inputManager?.updateBindings(p1, p2);
+function handleBindingsApply(p1: import('../types').InputBinding, p2: import('../types').InputBinding, p1Gp: import('../types').InputBinding, p2Gp: import('../types').InputBinding) {
+  inputManager?.updateBindings(p1, p2, p1Gp, p2Gp);
   currentP1Bindings.value = { ...p1 };
   currentP2Bindings.value = { ...p2 };
+  currentP1GpBindings.value = { ...p1Gp };
+  currentP2GpBindings.value = { ...p2Gp };
   showBindDialog.value = false;
   inputManager?.attach();
 }
@@ -241,11 +282,31 @@ function checkBothReady() {
     (p, b) => p2.buttonUp(p, b),
   );
   inputManager.attach();
+  connectedPads.value = inputManager.connectedPads.value;
+  watch(inputManager.connectedPads, (pads) => { connectedPads.value = [...pads]; });
+
+  // Cache refs outside frame callbacks to avoid Vue proxy overhead on every frame
+  const p1ReadMem = p1Emu.value.readMemory;
+  const p2ReadMem = p2Emu.value.readMemory;
+
+  // Take over frame driving: stop each emulator's self-driven rAF and run one shared loop
+  const emu1 = p1Emu.value!;
+  const emu2 = p2Emu.value!;
+  emu1.stopSelfDrive();
+  emu2.stopSelfDrive();
+
+  function sharedFrameLoop(timestamp: number) {
+    emu1.tick(timestamp);
+    emu2.tick(timestamp);
+    sharedRafId = requestAnimationFrame(sharedFrameLoop);
+  }
+  sharedRafId = requestAnimationFrame(sharedFrameLoop);
 
   p1Emu.value.onFrame((nes: any) => {
+    // Bare mode: skip ALL per-frame work (no FPS metering, no polling, no patching)
+    if (bareModeRaw) return;
 
     forceUnlimitedLives(nes);
-    // changePlayerColor(1, p1CurrentPalette.value);
 
     // God mode: keep star invincibility active
     if (godMode.value) {
@@ -269,25 +330,25 @@ function checkBothReady() {
     }
 
     // Event log: detect watched memory transitions for P1
-    eventLog.poll(1, p1Emu.value!.readMemory);
+    eventLog.poll(1, p1ReadMem);
 
     if (race.state.phase === 'racing' && !transitioning.value) {
-      console.log(`racing and !transitioning`)
-      p1Detector.poll(p1Emu.value!.readMemory);
-      p2Detector.poll(p2Emu.value!.readMemory);
+      p1Detector.poll(p1ReadMem);
+      p2Detector.poll(p2ReadMem);
       race.checkFrame(p1Detector.state, p2Detector.state);
     }
   });
 
   // Force Luigi mode + unlimited lives on P2 each frame
   p2Emu.value.onFrame((nes: any) => {
+    if (bareModeRaw) return;
+
     // Event log: detect watched memory transitions for P2
-    eventLog.poll(2, p2Emu.value!.readMemory);
+    eventLog.poll(2, p2ReadMem);
 
     forceUnlimitedLives(nes);
 
     if (!p2Music.value && nes.cpu.mem[ADDR_AREA_MUSIC] !== 0x00) {
-      // setLuigi(nes);
       p2LastSong.value = nes.cpu.mem[ADDR_AREA_MUSIC];
       patchMarioName(nes);
       forceLuigiPlayer(2);
@@ -1689,6 +1750,7 @@ function onDebugKey(e: KeyboardEvent) {
 window.addEventListener('keydown', onDebugKey);
 
 onUnmounted(() => {
+  if (sharedRafId !== null) { cancelAnimationFrame(sharedRafId); sharedRafId = null; }
   inputManager?.detach();
   window.removeEventListener('keydown', onDebugKey);
   if (memoryInterval) clearInterval(memoryInterval);
@@ -1746,6 +1808,9 @@ function startCountdown(): Promise<void> {
       :p2-sound="p2Sound"
       :p1-music="p1Music"
       :p2-music="p2Music"
+      :connected-pads="connectedPads"
+      :pad-player-map="padPlayerMap"
+      :bare-mode="bareMode"
       @quit="handleBack"
       @update:volume="handleVolumeChange"
       @toggle-mute="handleMuteToggle"
@@ -1763,12 +1828,15 @@ function startCountdown(): Promise<void> {
       @restart-level="handleRestartLevel"
       @toggle-pause="handleTogglePause"
       @open-bindings="handleOpenBindings"
+      @toggle-bare-mode="toggleBareMode"
     />
 
     <BindDialog
       v-if="showBindDialog"
       :p1-bindings="currentP1Bindings"
       :p2-bindings="currentP2Bindings"
+      :p1-gamepad-bindings="currentP1GpBindings"
+      :p2-gamepad-bindings="currentP2GpBindings"
       @close="handleBindingsClose"
       @apply="handleBindingsApply"
     />
@@ -1850,6 +1918,7 @@ function startCountdown(): Promise<void> {
   min-height: 0;
   display: flex;
   background: #000;
+  contain: layout style;
 }
 
 .divider {
@@ -1885,7 +1954,6 @@ function startCountdown(): Promise<void> {
   font-size: 1.4rem;
   color: #fcfcfc;
   pointer-events: none;
-  filter: blur(0.6px);
   -webkit-font-smoothing: none;
   animation: banner-pop 0.3s ease-out;
   z-index: 5;

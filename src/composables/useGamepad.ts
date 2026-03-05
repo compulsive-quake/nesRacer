@@ -23,6 +23,44 @@ export function useGamepad(
   const prevButtons = new Map<number, boolean[]>()
   const prevAxes = new Map<number, number[]>() // -1, 0, or 1 per axis
 
+  // Pre-computed code strings per gamepad to avoid template literal allocations every frame
+  const buttonCodes = new Map<number, string[]>()
+  const axisPlusCodes = new Map<number, string[]>()
+  const axisMinusCodes = new Map<number, string[]>()
+
+  function getButtonCode(gpIndex: number, btnIndex: number): string {
+    let codes = buttonCodes.get(gpIndex)
+    if (!codes) { codes = []; buttonCodes.set(gpIndex, codes) }
+    if (!codes[btnIndex]) codes[btnIndex] = `GP${gpIndex}:B${btnIndex}`
+    return codes[btnIndex]
+  }
+
+  function getAxisCode(gpIndex: number, axisIndex: number, positive: boolean): string {
+    const map = positive ? axisPlusCodes : axisMinusCodes
+    let codes = map.get(gpIndex)
+    if (!codes) { codes = []; map.set(gpIndex, codes) }
+    if (!codes[axisIndex]) codes[axisIndex] = `GP${gpIndex}:AX${axisIndex}${positive ? '+' : '-'}`
+    return codes[axisIndex]
+  }
+
+  function syncConnectedPads() {
+    const indices: number[] = []
+    for (const gp of navigator.getGamepads()) {
+      if (gp) indices.push(gp.index)
+    }
+    const prev = connectedPads.value
+    if (indices.length !== prev.length || indices.some((v, i) => v !== prev[i])) {
+      // Clean up state for disconnected pads
+      for (const idx of prev) {
+        if (!indices.includes(idx)) {
+          prevButtons.delete(idx)
+          prevAxes.delete(idx)
+        }
+      }
+      connectedPads.value = indices
+    }
+  }
+
   function onConnected(e: GamepadEvent) {
     if (!connectedPads.value.includes(e.gamepad.index)) {
       connectedPads.value = [...connectedPads.value, e.gamepad.index]
@@ -33,23 +71,26 @@ export function useGamepad(
     connectedPads.value = connectedPads.value.filter(i => i !== e.gamepad.index)
     prevButtons.delete(e.gamepad.index)
     prevAxes.delete(e.gamepad.index)
+    buttonCodes.delete(e.gamepad.index)
+    axisPlusCodes.delete(e.gamepad.index)
+    axisMinusCodes.delete(e.gamepad.index)
   }
 
   function poll() {
     const gamepads = navigator.getGamepads()
+
     for (const gp of gamepads) {
       if (!gp) continue
 
-      // Buttons
+      // Buttons — use pre-computed code strings to avoid allocations
       const prev = prevButtons.get(gp.index) ?? []
       const curr: boolean[] = []
       for (let i = 0; i < gp.buttons.length; i++) {
         const pressed = gp.buttons[i].pressed
         curr[i] = pressed
         const wasPressed = prev[i] ?? false
-        const code = `GP${gp.index}:B${i}`
-        if (pressed && !wasPressed) onPress(code)
-        else if (!pressed && wasPressed) onRelease(code)
+        if (pressed && !wasPressed) onPress(getButtonCode(gp.index, i))
+        else if (!pressed && wasPressed) onRelease(getButtonCode(gp.index, i))
       }
       prevButtons.set(gp.index, curr)
 
@@ -64,11 +105,11 @@ export function useGamepad(
 
         if (dir !== prevDir) {
           // Release previous direction
-          if (prevDir === 1) onRelease(`GP${gp.index}:AX${i}+`)
-          else if (prevDir === -1) onRelease(`GP${gp.index}:AX${i}-`)
+          if (prevDir === 1) onRelease(getAxisCode(gp.index, i, true))
+          else if (prevDir === -1) onRelease(getAxisCode(gp.index, i, false))
           // Press new direction
-          if (dir === 1) onPress(`GP${gp.index}:AX${i}+`)
-          else if (dir === -1) onPress(`GP${gp.index}:AX${i}-`)
+          if (dir === 1) onPress(getAxisCode(gp.index, i, true))
+          else if (dir === -1) onPress(getAxisCode(gp.index, i, false))
         }
       }
       prevAxes.set(gp.index, currAx)
@@ -82,12 +123,7 @@ export function useGamepad(
     running = true
     window.addEventListener('gamepadconnected', onConnected)
     window.addEventListener('gamepaddisconnected', onDisconnected)
-    // Pick up already-connected gamepads
-    for (const gp of navigator.getGamepads()) {
-      if (gp && !connectedPads.value.includes(gp.index)) {
-        connectedPads.value = [...connectedPads.value, gp.index]
-      }
-    }
+    syncConnectedPads()
     rafId = requestAnimationFrame(poll)
   }
 
@@ -98,6 +134,9 @@ export function useGamepad(
     window.removeEventListener('gamepaddisconnected', onDisconnected)
     prevButtons.clear()
     prevAxes.clear()
+    buttonCodes.clear()
+    axisPlusCodes.clear()
+    axisMinusCodes.clear()
   }
 
   onUnmounted(stop)

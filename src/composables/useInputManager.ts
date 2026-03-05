@@ -14,6 +14,16 @@ export const DEFAULT_P2: Readonly<InputBinding> = {
   a: 'Period', b: 'Comma', start: 'Backslash', select: 'BracketRight',
 }
 
+export const DEFAULT_P1_GAMEPAD: Readonly<InputBinding> = {
+  up: 'GP0:B12', down: 'GP0:B13', left: 'GP0:B14', right: 'GP0:B15',
+  a: 'GP0:B0', b: 'GP0:B2', start: 'GP0:B9', select: 'GP0:B8',
+}
+
+export const DEFAULT_P2_GAMEPAD: Readonly<InputBinding> = {
+  up: 'GP1:B12', down: 'GP1:B13', left: 'GP1:B14', right: 'GP1:B15',
+  a: 'GP1:B0', b: 'GP1:B2', start: 'GP1:B9', select: 'GP1:B8',
+}
+
 function loadBindings(key: string, fallback: Readonly<InputBinding>): InputBinding {
   try {
     const stored = localStorage.getItem(key)
@@ -36,6 +46,8 @@ export function useInputManager(
 ) {
   const p1Bindings = ref<InputBinding>(loadBindings('nesRacer:p1Bindings', DEFAULT_P1))
   const p2Bindings = ref<InputBinding>(loadBindings('nesRacer:p2Bindings', DEFAULT_P2))
+  const p1GamepadBindings = ref<InputBinding>(loadBindings('nesRacer:p1GpBindings', DEFAULT_P1_GAMEPAD))
+  const p2GamepadBindings = ref<InputBinding>(loadBindings('nesRacer:p2GpBindings', DEFAULT_P2_GAMEPAD))
 
   // Mutable map — rebuilt when bindings change. Plain variable (not reactive) for hot-path perf.
   let keyMap = new Map<string, { player: PlayerNumber; button: number }>()
@@ -43,24 +55,25 @@ export function useInputManager(
   function rebuildKeyMap() {
     keyMap = new Map()
     for (const action of NES_BUTTONS) {
-      keyMap.set(p1Bindings.value[action], {
-        player: 1,
-        button: Controller[`BUTTON_${action.toUpperCase()}` as keyof typeof Controller] as number,
-      })
-      keyMap.set(p2Bindings.value[action], {
-        player: 2,
-        button: Controller[`BUTTON_${action.toUpperCase()}` as keyof typeof Controller] as number,
-      })
+      const nesBtn = Controller[`BUTTON_${action.toUpperCase()}` as keyof typeof Controller] as number
+      keyMap.set(p1Bindings.value[action], { player: 1, button: nesBtn })
+      keyMap.set(p2Bindings.value[action], { player: 2, button: nesBtn })
+      keyMap.set(p1GamepadBindings.value[action], { player: 1, button: nesBtn })
+      keyMap.set(p2GamepadBindings.value[action], { player: 2, button: nesBtn })
     }
   }
 
   rebuildKeyMap()
 
-  function updateBindings(p1: InputBinding, p2: InputBinding) {
+  function updateBindings(p1: InputBinding, p2: InputBinding, p1Gp: InputBinding, p2Gp: InputBinding) {
     p1Bindings.value = { ...p1 }
     p2Bindings.value = { ...p2 }
+    p1GamepadBindings.value = { ...p1Gp }
+    p2GamepadBindings.value = { ...p2Gp }
     saveBindings('nesRacer:p1Bindings', p1Bindings.value)
     saveBindings('nesRacer:p2Bindings', p2Bindings.value)
+    saveBindings('nesRacer:p1GpBindings', p1GamepadBindings.value)
+    saveBindings('nesRacer:p2GpBindings', p2GamepadBindings.value)
     rebuildKeyMap()
   }
 
@@ -113,8 +126,12 @@ export function useInputManager(
   return {
     attach,
     detach,
+    startGamepad,
+    stopGamepad,
     p1Bindings,
     p2Bindings,
+    p1GamepadBindings,
+    p2GamepadBindings,
     updateBindings,
     connectedPads,
   }
