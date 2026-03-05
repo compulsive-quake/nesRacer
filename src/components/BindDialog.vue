@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, computed, watch, onMounted, onUnmounted } from 'vue'
 import type { InputBinding, NesButton } from '../types'
 import { NES_BUTTONS } from '../types'
-import { keyCodeToLabel } from '../utils/keyLabels'
+import { keyCodeToLabel, isGamepadCode } from '../utils/keyLabels'
 import { useBindingPresets } from '../composables/useBindingPresets'
+import { listenForGamepadInput } from '../composables/useGamepad'
+import NesControllerPreview from './NesControllerPreview.vue'
 
 const props = defineProps<{
   p1Bindings: InputBinding
@@ -97,17 +99,106 @@ function deletePreset() {
   selectedPresetId.value = presets.value[0]?.id ?? ''
 }
 
+// --- Pressed-state tracking for controller preview ---
+const pressedCodes = reactive(new Set<string>())
+
+function onPreviewKeyDown(e: KeyboardEvent) {
+  if (listeningFor.value) return // binding capture is active
+  pressedCodes.add(e.code)
+}
+function onPreviewKeyUp(e: KeyboardEvent) {
+  pressedCodes.delete(e.code)
+}
+
+// Gamepad polling for preview (runs continuously while dialog is open)
+let previewRafId = 0
+const prevGpButtons = new Map<number, boolean[]>()
+const prevGpAxes = new Map<number, number[]>()
+const GP_AXIS_THRESHOLD = 0.5
+
+function pollGamepadPreview() {
+  const gamepads = navigator.getGamepads()
+  for (const gp of gamepads) {
+    if (!gp) continue
+    const prev = prevGpButtons.get(gp.index) ?? []
+    const curr: boolean[] = []
+    for (let i = 0; i < gp.buttons.length; i++) {
+      const pressed = gp.buttons[i].pressed
+      curr[i] = pressed
+      const code = `GP${gp.index}:B${i}`
+      if (pressed && !(prev[i] ?? false)) pressedCodes.add(code)
+      else if (!pressed && (prev[i] ?? false)) pressedCodes.delete(code)
+    }
+    prevGpButtons.set(gp.index, curr)
+
+    const prevAx = prevGpAxes.get(gp.index) ?? []
+    const currAx: number[] = []
+    for (let i = 0; i < gp.axes.length; i++) {
+      const val = gp.axes[i]
+      const dir = val > GP_AXIS_THRESHOLD ? 1 : val < -GP_AXIS_THRESHOLD ? -1 : 0
+      currAx[i] = dir
+      const prevDir = prevAx[i] ?? 0
+      if (dir !== prevDir) {
+        if (prevDir === 1) pressedCodes.delete(`GP${gp.index}:AX${i}+`)
+        else if (prevDir === -1) pressedCodes.delete(`GP${gp.index}:AX${i}-`)
+        if (dir === 1) pressedCodes.add(`GP${gp.index}:AX${i}+`)
+        else if (dir === -1) pressedCodes.add(`GP${gp.index}:AX${i}-`)
+      }
+    }
+    prevGpAxes.set(gp.index, currAx)
+  }
+  previewRafId = requestAnimationFrame(pollGamepadPreview)
+}
+
+function pressedForPlayer(bindings: InputBinding): Set<NesButton> {
+  const s = new Set<NesButton>()
+  for (const btn of NES_BUTTONS) {
+    if (pressedCodes.has(bindings[btn])) s.add(btn)
+  }
+  return s
+}
+
+const p1Pressed = computed(() => pressedForPlayer(editP1.value))
+const p2Pressed = computed(() => pressedForPlayer(editP2.value))
+
 function applyBindings() {
   if (conflicts.value.length > 0) return
   emit('apply', editP1.value, editP2.value)
 }
 
+// Gamepad input capture — active only while listening for a binding
+let stopGamepadListen: (() => void) | null = null
+
+watch(listeningFor, (val) => {
+  // Clean up previous listener
+  if (stopGamepadListen) { stopGamepadListen(); stopGamepadListen = null }
+  if (!val) return
+
+  stopGamepadListen = listenForGamepadInput((code) => {
+    if (!listeningFor.value) return
+    const { player, button } = listeningFor.value
+    if (player === 1) {
+      editP1.value = { ...editP1.value, [button]: code }
+    } else {
+      editP2.value = { ...editP2.value, [button]: code }
+    }
+    listeningFor.value = null
+  })
+})
+
 onMounted(() => {
   window.addEventListener('keydown', onKeyCapture, true)
+  window.addEventListener('keydown', onPreviewKeyDown)
+  window.addEventListener('keyup', onPreviewKeyUp)
+  previewRafId = requestAnimationFrame(pollGamepadPreview)
 })
 
 onUnmounted(() => {
   window.removeEventListener('keydown', onKeyCapture, true)
+  window.removeEventListener('keydown', onPreviewKeyDown)
+  window.removeEventListener('keyup', onPreviewKeyUp)
+  cancelAnimationFrame(previewRafId)
+  if (stopGamepadListen) { stopGamepadListen(); stopGamepadListen = null }
 })
 </script>
 
@@ -120,42 +211,50 @@ onUnmounted(() => {
         Duplicate key assignments detected — resolve before applying.
       </div>
 
-      <div class="bind-columns">
-        <div class="bind-col">
-          <div class="bind-col-header">P1 (Mario)</div>
-          <div v-for="btn in NES_BUTTONS" :key="btn" class="bind-row">
-            <span class="bind-action">{{ BUTTON_LABELS[btn] }}</span>
-            <button
-              class="bind-key"
-              :class="{
-                listening: listeningFor?.player === 1 && listeningFor?.button === btn,
-                conflict: hasConflict(1, btn),
-              }"
-              @click="startListening(1, btn)"
-            >
-              {{ listeningFor?.player === 1 && listeningFor?.button === btn
-                ? 'Press a key...'
-                : keyCodeToLabel(editP1[btn]) }}
-            </button>
+      <div class="bind-body">
+        <div class="bind-left">
+          <div class="bind-columns">
+            <div class="bind-col">
+              <div class="bind-col-header">P1 (Mario)</div>
+              <div v-for="btn in NES_BUTTONS" :key="btn" class="bind-row">
+                <span class="bind-action">{{ BUTTON_LABELS[btn] }}</span>
+                <button
+                  class="bind-key"
+                  :class="{
+                    listening: listeningFor?.player === 1 && listeningFor?.button === btn,
+                    conflict: hasConflict(1, btn),
+                  }"
+                  @click="startListening(1, btn)"
+                >
+                  {{ listeningFor?.player === 1 && listeningFor?.button === btn
+                    ? 'Press key/button...'
+                    : keyCodeToLabel(editP1[btn]) }}
+                </button>
+              </div>
+            </div>
+            <div class="bind-col">
+              <div class="bind-col-header">P2 (Luigi)</div>
+              <div v-for="btn in NES_BUTTONS" :key="btn" class="bind-row">
+                <span class="bind-action">{{ BUTTON_LABELS[btn] }}</span>
+                <button
+                  class="bind-key"
+                  :class="{
+                    listening: listeningFor?.player === 2 && listeningFor?.button === btn,
+                    conflict: hasConflict(2, btn),
+                  }"
+                  @click="startListening(2, btn)"
+                >
+                  {{ listeningFor?.player === 2 && listeningFor?.button === btn
+                    ? 'Press key/button...'
+                    : keyCodeToLabel(editP2[btn]) }}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
-        <div class="bind-col">
-          <div class="bind-col-header">P2 (Luigi)</div>
-          <div v-for="btn in NES_BUTTONS" :key="btn" class="bind-row">
-            <span class="bind-action">{{ BUTTON_LABELS[btn] }}</span>
-            <button
-              class="bind-key"
-              :class="{
-                listening: listeningFor?.player === 2 && listeningFor?.button === btn,
-                conflict: hasConflict(2, btn),
-              }"
-              @click="startListening(2, btn)"
-            >
-              {{ listeningFor?.player === 2 && listeningFor?.button === btn
-                ? 'Press a key...'
-                : keyCodeToLabel(editP2[btn]) }}
-            </button>
-          </div>
+        <div class="bind-preview">
+          <NesControllerPreview :pressed="p1Pressed" label="P1 Preview" />
+          <NesControllerPreview :pressed="p2Pressed" label="P2 Preview" />
         </div>
       </div>
 
@@ -209,7 +308,27 @@ onUnmounted(() => {
   border-radius: 8px;
   padding: 1.2rem;
   min-width: 480px;
-  max-width: 560px;
+  max-width: 800px;
+}
+
+.bind-body {
+  display: flex;
+  gap: 1.2rem;
+}
+
+.bind-left {
+  flex: 1;
+  min-width: 0;
+}
+
+.bind-preview {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1rem;
+  padding: 0.4rem 0;
+  border-left: 1px solid #333;
+  padding-left: 1.2rem;
 }
 
 .bind-title {

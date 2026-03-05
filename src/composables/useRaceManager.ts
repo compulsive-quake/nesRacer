@@ -60,6 +60,7 @@ export function useRaceManager() {
   }
 
   function handleLevelWin(winner: 1 | 2, _winnerState: GameState) {
+    // console.log(`handleLevelWin`);
     state.levelWinner = winner;
     // Notify SplitScreen — it will kill the loser and keep both running
     onLevelWin?.(winner);
@@ -81,6 +82,7 @@ export function useRaceManager() {
   }
 
   function advanceToNextLevel() {
+    // console.log(`advanceToNextLevel`);
     // Advance SMB level: 1-1 -> 1-2 -> 1-3 -> 1-4 -> 2-1 ...
     let nextLevel = state.currentLevel + 1;
     let nextWorld = state.currentWorld;

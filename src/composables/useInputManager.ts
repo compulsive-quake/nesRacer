@@ -2,6 +2,7 @@ import { ref } from 'vue'
 import { Controller } from 'jsnes'
 import type { InputBinding, PlayerNumber, NesButton } from '../types'
 import { NES_BUTTONS } from '../types'
+import { useGamepad } from './useGamepad'
 
 export const DEFAULT_P1: Readonly<InputBinding> = {
   up: 'KeyW', down: 'KeyS', left: 'KeyA', right: 'KeyD',
@@ -80,14 +81,33 @@ export function useInputManager(
     else p2ButtonUp(2, entry.button)
   }
 
+  // Gamepad polling — uses the same keyMap with GP codes
+  function onGamepadPress(code: string) {
+    const entry = keyMap.get(code)
+    if (!entry) return
+    if (entry.player === 1) p1ButtonDown(1, entry.button)
+    else p2ButtonDown(2, entry.button)
+  }
+
+  function onGamepadRelease(code: string) {
+    const entry = keyMap.get(code)
+    if (!entry) return
+    if (entry.player === 1) p1ButtonUp(1, entry.button)
+    else p2ButtonUp(2, entry.button)
+  }
+
+  const { start: startGamepad, stop: stopGamepad, connectedPads } = useGamepad(onGamepadPress, onGamepadRelease)
+
   function attach() {
     window.addEventListener('keydown', onKeyDown)
     window.addEventListener('keyup', onKeyUp)
+    startGamepad()
   }
 
   function detach() {
     window.removeEventListener('keydown', onKeyDown)
     window.removeEventListener('keyup', onKeyUp)
+    stopGamepad()
   }
 
   return {
@@ -96,5 +116,6 @@ export function useInputManager(
     p1Bindings,
     p2Bindings,
     updateBindings,
+    connectedPads,
   }
 }

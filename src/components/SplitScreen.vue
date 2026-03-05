@@ -272,12 +272,12 @@ function checkBothReady() {
     eventLog.poll(1, p1Emu.value!.readMemory);
 
     if (race.state.phase === 'racing' && !transitioning.value) {
+      console.log(`racing and !transitioning`)
       p1Detector.poll(p1Emu.value!.readMemory);
       p2Detector.poll(p2Emu.value!.readMemory);
       race.checkFrame(p1Detector.state, p2Detector.state);
     }
   });
-
 
   // Force Luigi mode + unlimited lives on P2 each frame
   p2Emu.value.onFrame((nes: any) => {
@@ -353,13 +353,9 @@ function startRace() {
               loserEmu?.pause();
             }
             if (entry.player === winner && entry.toValue === 6 && loserPaused && !alreadyResumed) {
-              if (skipFirst) {
-                alreadyResumed = true;
-                console.log(`rusuming because winner entered score screen`);
-                loserEmu?.resume();
-              } else {
-                skipFirst = true;
-              }
+              alreadyResumed = true;
+              console.log(`rusuming because winner entered score screen`);
+              loserEmu?.resume();
             }
           }
 
@@ -381,38 +377,39 @@ function startRace() {
         });
 
         eventLogUnsubscribers.push(unsubscribe);
-        // deathScreenPlayer(loser);
-        timeoutPlayer(loser);
+        deathScreenPlayer(loser);
+        // timeoutPlayer(loser);
         nextLevelPlayer(loser);
       },
       onWinnerReachedNextLevel(winner: 1 | 2, world: number, level: number) {
-        watchWinnerAndSyncLoser(winner, world, level);
+        console.log(`onWinnerREachedNextLevel`);
+        // watchWinnerAndSyncLoser(winner, world, level);
       },
     });
   }, 3000);
 }
 
 function watchWinnerAndSyncLoser(winner: 1 | 2, targetWorld: number, targetLevel: number) {
-  transitioning.value = true;
-  const winnerEmu = winner === 1 ? p1Emu.value : p2Emu.value;
-  const loserEmu = winner === 1 ? p2Emu.value : p1Emu.value;
-  if (!winnerEmu || !loserEmu) return;
+  // transitioning.value = true;
+  // const winnerEmu = winner === 1 ? p1Emu.value : p2Emu.value;
+  // const loserEmu = winner === 1 ? p2Emu.value : p1Emu.value;
+  // if (!winnerEmu || !loserEmu) return;
 
-  let winnerReady = false;
-  let loserReady = false;
-  let loserWarped = false;
-  let resolved = false;
-  let warpInterval: ReturnType<typeof setInterval> | null = null;
+  // let winnerReady = false;
+  // let loserReady = false;
+  // let loserWarped = false;
+  // let resolved = false;
+  // let warpInterval: ReturnType<typeof setInterval> | null = null;
 
-  // Safety fallback — if either never reaches the target level
+  // // Safety fallback — if either never reaches the target level
   // setTimeout(() => {
-    // if (!resolved) {
-      // resolved = true;
-      // if (warpInterval) clearInterval(warpInterval);
-      // winnerEmu.pause();
-      // loserEmu.pause();
-      finishTransition(loserEmu, winner);
-    // }
+  //   if (!resolved) {
+  //     resolved = true;
+  //     if (warpInterval) clearInterval(warpInterval);
+  //     winnerEmu.pause();
+  //     loserEmu.pause();
+
+  //   }
   // }, 15000);
 }
 
@@ -1787,7 +1784,7 @@ function startCountdown(): Promise<void> {
           :enable-audio="true"
           @ready="onP1Ready"
         />
-       -- <div v-if="p1Banner" class="player-banner" :class="p1Banner">
+       <div v-if="p1Banner" class="player-banner" :class="p1Banner">
           {{ p1Banner === 'win' ? 'YOU WIN!' : 'YOU LOSE!' }}
         </div>
         <WaypointPanel
