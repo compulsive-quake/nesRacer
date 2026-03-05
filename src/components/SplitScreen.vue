@@ -341,21 +341,25 @@ function startRace() {
         let p2Ready = false;
         let loserPaused = false;
         let alreadyResumed = false;
-        console.log(`about to subscribe`)
+        let skipFirst = false;
         // Subscribe — callback fires on every new LogEntry
         const unsubscribe = eventLog.subscribe((entry) => {
 
           if (entry.addr === 0x07A0) {
-            
+
             if (entry.player === loser && entry.toValue === 6 && !loserPaused && !alreadyResumed) {
               console.log(`pausing because loser entered score screen`);
               loserPaused = true;
               loserEmu?.pause();
             }
             if (entry.player === winner && entry.toValue === 6 && loserPaused && !alreadyResumed) {
-              console.log(`resuming because winner entered score screen`);
-              alreadyResumed = true;
-              loserEmu?.resume();
+              if (skipFirst) {
+                alreadyResumed = true;
+                console.log(`rusuming because winner entered score screen`);
+                loserEmu?.resume();
+              } else {
+                skipFirst = true;
+              }
             }
           }
 
@@ -377,15 +381,12 @@ function startRace() {
         });
 
         eventLogUnsubscribers.push(unsubscribe);
-
-        // // const loser = winner !== 1 ? 1 : 2;
-        // timeoutPlayer(loser);
-        deathScreenPlayer(loser);
+        // deathScreenPlayer(loser);
+        timeoutPlayer(loser);
         nextLevelPlayer(loser);
       },
       onWinnerReachedNextLevel(winner: 1 | 2, world: number, level: number) {
-        console.log(`onWinner ReachedNextLevel`);
-        // watchWinnerAndSyncLoser(winner, world, level);
+        watchWinnerAndSyncLoser(winner, world, level);
       },
     });
   }, 3000);
@@ -404,15 +405,15 @@ function watchWinnerAndSyncLoser(winner: 1 | 2, targetWorld: number, targetLevel
   let warpInterval: ReturnType<typeof setInterval> | null = null;
 
   // Safety fallback — if either never reaches the target level
-  setTimeout(() => {
-    if (!resolved) {
-      resolved = true;
+  // setTimeout(() => {
+    // if (!resolved) {
+      // resolved = true;
       // if (warpInterval) clearInterval(warpInterval);
       // winnerEmu.pause();
       // loserEmu.pause();
-      // finishTransition(loserEmu, winner);
-    }
-  }, 15000);
+      finishTransition(loserEmu, winner);
+    // }
+  // }, 15000);
 }
 
 function finishTransition(loserEmu: NesEmulator, winner: 1 | 2) {
@@ -480,6 +481,12 @@ function handleLoadWaypoint(player: 1 | 2, waypoint: Waypoint) {
   for (let i = 0; i < 7; i++) {
     emu.writeMemory(0x0761 + i, emu.readMemory(0x075a + i));
   }
+  // Reset event log tracking so the abrupt RAM change from the state load
+  // doesn't trigger spurious events (which can cascade into race callbacks)
+  eventLog.resetPlayer(player);
+  // Reset detector so stale isLevelComplete doesn't trigger handleLevelWin
+  const detector = player === 1 ? p1Detector : p2Detector;
+  detector.resetDetection();
 }
 
 function handleRestartLevel(mode: number) {
@@ -1780,9 +1787,9 @@ function startCountdown(): Promise<void> {
           :enable-audio="true"
           @ready="onP1Ready"
         />
-       <!---- <div v-if="p1Banner" class="player-banner" :class="p1Banner">
+       -- <div v-if="p1Banner" class="player-banner" :class="p1Banner">
           {{ p1Banner === 'win' ? 'YOU WIN!' : 'YOU LOSE!' }}
-        </div> -->
+        </div>
         <WaypointPanel
           class="wp-left"
           :waypoints="wp.p1Waypoints.value"

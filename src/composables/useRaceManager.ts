@@ -57,19 +57,6 @@ export function useRaceManager() {
     } else if (p2Complete && !state.levelWinner) {
       handleLevelWin(2, p2State);
     }
-
-    // Check if either player got game over (0 lives and dead)
-    const p1GameOver = p1State.operMode === 0x03;
-    const p2GameOver = p2State.operMode === 0x03;
-
-    if (p1GameOver && !p2GameOver && !state.levelWinner) {
-      handleLevelWin(2, p2State);
-    } else if (p2GameOver && !p1GameOver && !state.levelWinner) {
-      handleLevelWin(1, p1State);
-    } else if (p1GameOver && p2GameOver && !state.levelWinner) {
-      // Both game over — tie, no winner
-      handleLevelWin(0 as any, p1State);
-    }
   }
 
   function handleLevelWin(winner: 1 | 2, _winnerState: GameState) {
@@ -86,11 +73,11 @@ export function useRaceManager() {
     if (winner === 1) state.p1Score++;
     else if (winner === 2) state.p2Score++;
 
-    // Advance to next level after delay (flag ceremony + death animation)
-    levelCompleteTimer = setTimeout(() => {
-      console.log(`levelCompleteTimer`);
+    // // Advance to next level after delay (flag ceremony + death animation)
+    // levelCompleteTimer = setTimeout(() => {
+    //   console.log(`levelCompleteTimer`);
       advanceToNextLevel();
-    }, 6000);
+    // }, 6000);
   }
 
   function advanceToNextLevel() {

@@ -126,6 +126,12 @@ export function useEventLog() {
     entries.value = [];
   }
 
+  /** Clear tracked previous values for a player so the next poll()
+   *  establishes a fresh baseline instead of detecting spurious transitions. */
+  function resetPlayer(player: 1 | 2) {
+    prevValues[player] = {};
+  }
+
   function reset() {
     entries.value = [];
     entryCounter.value = 0;
@@ -147,6 +153,7 @@ export function useEventLog() {
     poll,
     clear,
     reset,
+    resetPlayer,
     subscribe,
     watchedAddresses: WATCHED_ADDRESSES,
   };

@@ -15,10 +15,13 @@ export function useNesEmulator(enableAudio = false) {
   let accumulator = 0;
   const NES_FRAME_MS = 1000 / 60;
 
-  // Audio
+  // Audio — ring buffer to avoid array allocations in the hot audio callback
   let audioCtx: AudioContext | null = null;
-  const audioBuffer: number[][] = [[], []];
   const audioBufferSize = 8192;
+  const audioRingL = new Float32Array(audioBufferSize);
+  const audioRingR = new Float32Array(audioBufferSize);
+  let audioWritePos = 0;
+  let audioReadPos = 0;
   let audioScriptNode: ScriptProcessorNode | null = null;
   let gainNode: GainNode | null = null;
 
@@ -40,9 +43,11 @@ export function useNesEmulator(enableAudio = false) {
       },
       onAudioSample: enableAudio
         ? (left: number, right: number) => {
-            if (audioBuffer[0].length < audioBufferSize) {
-              audioBuffer[0].push(left);
-              audioBuffer[1].push(right);
+            const next = (audioWritePos + 1) % audioBufferSize;
+            if (next !== audioReadPos) {
+              audioRingL[audioWritePos] = left;
+              audioRingR[audioWritePos] = right;
+              audioWritePos = next;
             }
           }
         : undefined,
@@ -87,28 +92,34 @@ export function useNesEmulator(enableAudio = false) {
     audioScriptNode.onaudioprocess = (e) => {
       const left = e.outputBuffer.getChannelData(0);
       const right = e.outputBuffer.getChannelData(1);
-      const len = Math.min(left.length, audioBuffer[0].length);
-      for (let i = 0; i < len; i++) {
-        left[i] = audioBuffer[0][i];
-        right[i] = audioBuffer[1][i];
+      const frames = left.length;
+      let rp = audioReadPos;
+      const wp = audioWritePos;
+      let i = 0;
+      // Drain available samples from the ring buffer
+      while (i < frames && rp !== wp) {
+        left[i] = audioRingL[rp];
+        right[i] = audioRingR[rp];
+        rp = (rp + 1) % audioBufferSize;
+        i++;
       }
+      audioReadPos = rp;
       // Fill rest with silence
-      for (let i = len; i < left.length; i++) {
+      while (i < frames) {
         left[i] = 0;
         right[i] = 0;
+        i++;
       }
-      audioBuffer[0] = audioBuffer[0].slice(len);
-      audioBuffer[1] = audioBuffer[1].slice(len);
     };
     audioScriptNode.connect(gainNode);
 
     // Keep silent for 1 full second to discard startup noise, then fade in
     const startAudio = () => {
-      audioBuffer[0] = [];
-      audioBuffer[1] = [];
+      audioWritePos = 0;
+      audioReadPos = 0;
       setTimeout(() => {
-        audioBuffer[0] = [];
-        audioBuffer[1] = [];
+        audioWritePos = 0;
+        audioReadPos = 0;
         gainNode!.gain.linearRampToValueAtTime(targetVolume, audioCtx!.currentTime + 0.3);
       }, 1000);
     };
@@ -198,6 +209,13 @@ export function useNesEmulator(enableAudio = false) {
 
   function loadState(state: object) {
     nes?.fromJSON(state);
+    // Reset frame timing so the loop doesn't try to "catch up" for the
+    // time spent inside fromJSON (which recreates CPU/PPU/PAPU objects).
+    lastFrameTime = 0;
+    accumulator = 0;
+    // Flush stale audio samples from before the state load
+    audioWritePos = 0;
+    audioReadPos = 0;
   }
 
   function getNes(): NES | null {
