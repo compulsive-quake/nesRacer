@@ -89,6 +89,7 @@ let touchSnapTimer = 0
 function onScroll() {
   if (!gridContainer.value) return
   gridContainer.value.classList.add('scrolling')
+  updateCurrentLetter()
   clearTimeout(scrollTimer)
   scrollTimer = window.setTimeout(() => {
     gridContainer.value?.classList.remove('scrolling')
@@ -130,31 +131,50 @@ let wheelRafId = 0
 let wheelAnimating = false
 const WHEEL_LERP = 0.18 // interpolation factor per frame — higher = faster catch-up
 
+function measureRowHeight(): number {
+  const container = gridContainer.value
+  const grid = container?.querySelector('.grid') as HTMLElement | null
+  if (!container || !grid) return 0
+  const items = grid.querySelectorAll('.grid-item')
+  const cols = getColumnsCount()
+  if (items.length <= cols) return 0
+  // Measure from two adjacent visible row-start items to get an accurate
+  // height unaffected by content-visibility: auto estimation.
+  // Estimate which row is near the viewport top, then measure from there.
+  const totalRows = Math.ceil(items.length / cols)
+  const maxScroll = container.scrollHeight - container.clientHeight
+  const estRow = maxScroll > 0
+    ? Math.min(Math.floor((container.scrollTop / maxScroll) * totalRows), totalRows - 2)
+    : 0
+  const startRow = Math.max(0, estRow)
+  for (let r = startRow; r < Math.min(startRow + 3, totalRows - 1); r++) {
+    const idx1 = r * cols
+    const idx2 = (r + 1) * cols
+    if (idx2 >= items.length) break
+    const top1 = (items[idx1] as HTMLElement).getBoundingClientRect().top
+    const top2 = (items[idx2] as HTMLElement).getBoundingClientRect().top
+    const h = top2 - top1
+    if (h > 0) return h
+  }
+  // Fallback: first two rows
+  return (items[cols] as HTMLElement).getBoundingClientRect().top -
+    (items[0] as HTMLElement).getBoundingClientRect().top
+}
+
 function getRowSnapPoints(): number[] {
   const container = gridContainer.value
   const grid = container?.querySelector('.grid') as HTMLElement | null
   if (!container || !grid) return []
   const items = grid.querySelectorAll('.grid-item')
   if (!items.length) return []
-  // Use getBoundingClientRect for reliable positions relative to the scroll container,
-  // regardless of offsetParent ancestry.
-  const containerTop = container.getBoundingClientRect().top
-  const scrollTop = container.scrollTop
-  // Absolute position of first item within the scroll content
-  const firstItemAbsY = (items[0] as HTMLElement).getBoundingClientRect().top - containerTop + scrollTop
-  const seen = new Set<number>()
-  const points: number[] = [0] // scrollTop=0 is always valid
-  for (const item of items) {
-    const el = item as HTMLElement
-    const absY = el.getBoundingClientRect().top - containerTop + scrollTop
-    // Snap so this row appears at the same position as the first row at scrollTop=0
-    const snap = Math.round(absY - firstItemAbsY)
-    if (snap > 0 && !seen.has(snap)) {
-      seen.add(snap)
-      points.push(snap)
-    }
-  }
-  return points.sort((a, b) => a - b)
+  const cols = getColumnsCount()
+  const totalRows = Math.ceil(items.length / cols)
+  if (totalRows <= 1) return [0]
+  // Always re-measure from visible rows — cheap (2-4 DOM reads) and
+  // accurate regardless of content-visibility estimation
+  const h = measureRowHeight()
+  if (!h) return [0]
+  return Array.from({ length: totalRows }, (_, r) => r * h)
 }
 
 function snapToNearestRow() {
@@ -222,9 +242,15 @@ function onWheel(e: WheelEvent) {
     snapTarget = points[bestIdx]
   }
 
-  // Find index of current snapTarget in points, then move one row
-  let idx = points.indexOf(snapTarget)
-  if (idx === -1) idx = 0
+  // Find index of current snapTarget in points, then move one row.
+  // Use nearest match instead of exact indexOf — snap points can shift
+  // slightly between calls due to content-visibility: auto relayout.
+  let idx = 0
+  let idxDist = Math.abs(points[0] - snapTarget)
+  for (let i = 1; i < points.length; i++) {
+    const dist = Math.abs(points[i] - snapTarget)
+    if (dist < idxDist) { idx = i; idxDist = dist }
+  }
   if (e.deltaY > 0 && idx < points.length - 1) {
     snapTarget = points[idx + 1]
   } else if (e.deltaY < 0 && idx > 0) {
@@ -246,10 +272,9 @@ function midScrollLoop() {
   const container = gridContainer.value
   if (!container || !midScrollActive) return
   const delta = midCurrentY - midOriginY
-  // Speed scales with distance from origin; deadzone of 15px, gentle curve
   const absDelta = Math.abs(delta)
-  if (absDelta > 15) {
-    const speed = Math.sign(delta) * Math.pow((absDelta - 15) / 40, 1.4)
+  if (absDelta > 5) {
+    const speed = Math.sign(delta) * Math.pow((absDelta - 5) / 20, 1.6)
     container.scrollTop += speed
   }
   midRafId = requestAnimationFrame(midScrollLoop)
@@ -375,6 +400,52 @@ function onKeydown(e: KeyboardEvent) {
   }
 }
 
+// --- Alphabet navigation ---
+const currentLetter = ref('')
+
+function updateCurrentLetter() {
+  const container = gridContainer.value
+  if (!container) return
+  const games = filteredGames.value
+  if (!games.length) return
+  // Estimate visible row from scroll ratio to avoid DOM queries
+  // that can force content-visibility: auto relayout
+  const maxScroll = container.scrollHeight - container.clientHeight
+  if (maxScroll <= 0) {
+    const ch = games[0].title[0]?.toUpperCase()
+    currentLetter.value = ch >= 'A' && ch <= 'Z' ? ch : '#'
+    return
+  }
+  const ratio = container.scrollTop / maxScroll
+  const cols = getColumnsCount()
+  const totalRows = Math.ceil(games.length / cols)
+  const row = Math.min(Math.floor(ratio * totalRows), totalRows - 1)
+  const idx = Math.min(row * cols, games.length - 1)
+  const ch = games[idx].title[0]?.toUpperCase()
+  currentLetter.value = ch >= 'A' && ch <= 'Z' ? ch : '#'
+}
+
+function scrollToLetter(letter: string) {
+  const games = filteredGames.value
+  const idx = games.findIndex(g => {
+    const ch = g.title[0]?.toUpperCase()
+    return letter === '#' ? (ch < 'A' || ch > 'Z') : ch >= letter
+  })
+  if (idx < 0) return
+
+  // Use row index + column count to find the snap point directly,
+  // avoiding getBoundingClientRect which is inaccurate for off-screen
+  // items due to content-visibility: auto.
+  const cols = getColumnsCount()
+  const targetRow = Math.floor(idx / cols)
+  const points = getRowSnapPoints()
+  if (!points.length) return
+  snapTarget = targetRow < points.length ? points[targetRow] : points[points.length - 1]
+  startWheelAnimation()
+}
+
+defineExpose({ currentLetter, scrollToLetter })
+
 onMounted(() => {
   gridContainer.value?.addEventListener('scroll', onScroll, { passive: true })
   gridContainer.value?.addEventListener('wheel', onWheel, { passive: false })
@@ -386,6 +457,7 @@ onMounted(() => {
   window.addEventListener('mousedown', onMousedownGlobal)
   window.addEventListener('keydown', onKeydown)
   window.addEventListener('keydown', onKeydownGlobal)
+  updateCurrentLetter()
 })
 
 onBeforeUnmount(() => {
@@ -487,8 +559,8 @@ onBeforeUnmount(() => {
   border-radius: 8px;
   transition: transform 0.15s ease-out;
   contain: layout style paint;
-  content-visibility: auto;
-  contain-intrinsic-size: 140px 230px;
+  height: 230px;
+  overflow: hidden;
 }
 
 .grid-item:hover {
@@ -515,7 +587,8 @@ onBeforeUnmount(() => {
 .grid-item-image {
   position: relative;
   width: 100%;
-  aspect-ratio: 140 / 190;
+  flex: 1;
+  min-height: 0;
 }
 
 .grid-item img {

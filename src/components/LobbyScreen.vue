@@ -24,6 +24,26 @@ const activatedGameImage = ref('')
 const filterQuery = ref('')
 const viewMode = ref<ViewMode>('grid')
 
+const gridRef = ref<InstanceType<typeof GameGrid> | null>(null)
+const carouselRef = ref<InstanceType<typeof GameCarousel> | null>(null)
+
+const LETTERS = '#ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('')
+
+const currentLetter = computed(() => {
+  if (viewMode.value === 'carousel') {
+    return carouselRef.value?.currentLetter ?? ''
+  }
+  return gridRef.value?.currentLetter ?? ''
+})
+
+function onLetterClick(letter: string) {
+  if (viewMode.value === 'carousel') {
+    carouselRef.value?.scrollToLetter(letter)
+  } else {
+    gridRef.value?.scrollToLetter(letter)
+  }
+}
+
 const isFullscreen = ref(!!document.fullscreenElement)
 
 function toggleFullscreen() {
@@ -42,10 +62,12 @@ function onFullscreenChange() {
 onMounted(() => {
   preloadAll()
   document.addEventListener('fullscreenchange', onFullscreenChange)
+  window.addEventListener('popstate', onPopState)
 })
 
 onBeforeUnmount(() => {
   document.removeEventListener('fullscreenchange', onFullscreenChange)
+  window.removeEventListener('popstate', onPopState)
 })
 
 function onGameSelected(game: GameInfo) {
@@ -56,11 +78,22 @@ async function onGameActivated(game: GameInfo) {
   selectedGame.value = game
   activatedGame.value = game
   activatedGameImage.value = await resolveImageUrl(game.index) ?? ''
+  history.pushState({ view: 'modeSelect' }, '')
 }
 
 function backToGrid() {
   activatedGame.value = null
   activatedGameImage.value = ''
+}
+
+function goBack() {
+  history.back()
+}
+
+function onPopState() {
+  if (activatedGame.value) {
+    backToGrid()
+  }
 }
 
 function romUrl(): string {
@@ -76,7 +109,7 @@ const splitScreenAvailable = computed(() => {
 </script>
 
 <template>
-  <div class="lobby">
+  <div class="lobby" @contextmenu.prevent>
     <header class="toolbar">
       <div class="toolbar-logo">
         <span class="toolbar-title">NES<span class="accent">Racer</span></span>
@@ -155,8 +188,8 @@ const splitScreenAvailable = computed(() => {
     </header>
 
       <!-- Mode selection screen -->
-      <div v-if="activatedGame" class="mode-select">
-        <button class="back-btn" @click="backToGrid">
+      <div v-show="activatedGame" class="mode-select">
+        <button class="back-btn" @click="goBack">
           <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
             <path d="M12.7 15.3a1 1 0 0 1-1.4 0l-4.6-4.6a1 1 0 0 1 0-1.4l4.6-4.6a1 1 0 1 1 1.4 1.4L8.8 10l3.9 3.9a1 1 0 0 1 0 1.4z"/>
           </svg>
@@ -166,13 +199,13 @@ const splitScreenAvailable = computed(() => {
           <img
             v-if="activatedGameImage"
             :src="activatedGameImage"
-            :alt="activatedGame.title"
+            :alt="activatedGame?.title"
             class="mode-select-cover"
           />
           <div class="mode-select-info">
-            <h2 class="mode-select-title">{{ activatedGame.title }}</h2>
+            <h2 class="mode-select-title">{{ activatedGame?.title }}</h2>
             <div class="mode-select-buttons">
-              <button class="mode-card" @click="emit('startSingle', romUrl(), activatedGame.romId ?? 0)">
+              <button class="mode-card" @click="activatedGame && emit('startSingle', romUrl(), activatedGame.romId ?? 0)">
                 <svg class="mode-icon" width="36" height="36" viewBox="0 0 24 24" fill="currentColor">
                   <path d="M12 12c2.7 0 4.8-2.1 4.8-4.8S14.7 2.4 12 2.4 7.2 4.5 7.2 7.2 9.3 12 12 12zm0 2.4c-3.2 0-9.6 1.6-9.6 4.8v2.4h19.2v-2.4c0-3.2-6.4-4.8-9.6-4.8z"/>
                 </svg>
@@ -181,7 +214,7 @@ const splitScreenAvailable = computed(() => {
               <button
                 class="mode-card"
                 :disabled="!splitScreenAvailable"
-                @click="splitScreenAvailable && emit('startLocal', romUrl(), activatedGame.romId!)"
+                @click="splitScreenAvailable && activatedGame && emit('startLocal', romUrl(), activatedGame.romId!)"
               >
                 <svg class="mode-icon" width="36" height="36" viewBox="0 0 24 24" fill="currentColor">
                   <path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5s-3 1.34-3 3 1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/>
@@ -200,9 +233,20 @@ const splitScreenAvailable = computed(() => {
       </div>
 
       <!-- Game browser -->
-      <template v-else>
+      <div v-show="!activatedGame" class="game-browser">
+        <nav class="alphabet-bar">
+          <button
+            v-for="letter in LETTERS"
+            :key="letter"
+            class="alpha-btn"
+            :class="{ active: currentLetter === letter }"
+            @click="onLetterClick(letter)"
+          >{{ letter }}</button>
+        </nav>
+
         <GameCarousel
           v-if="viewMode === 'carousel'"
+          ref="carouselRef"
           default-game="Super Mario Bros. (World)"
           :filter-query="filterQuery"
           :favorites-only="showOnlyFavorites"
@@ -213,13 +257,14 @@ const splitScreenAvailable = computed(() => {
 
         <GameGrid
           v-else
+          ref="gridRef"
           :filter-query="filterQuery"
           :favorites-only="showOnlyFavorites"
           :split-screen-only="showOnlySplitScreen"
           @update:selected-game="onGameSelected"
           @activate="onGameActivated"
         />
-      </template>
+      </div>
   </div>
 </template>
 
@@ -230,6 +275,8 @@ const splitScreenAvailable = computed(() => {
   flex-direction: column;
   background: linear-gradient(135deg, #0a0a0a 0%, #1a1a2e 50%, #0a0a0a 100%);
   overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .toolbar {
@@ -376,6 +423,8 @@ const splitScreenAvailable = computed(() => {
   font-size: 0.85rem;
   outline: none;
   transition: border-color 0.15s;
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 .game-filter::placeholder {
@@ -386,6 +435,51 @@ const splitScreenAvailable = computed(() => {
   border-color: #e63946;
 }
 
+
+.game-browser {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.alphabet-bar {
+  display: flex;
+  justify-content: center;
+  gap: 1px;
+  padding: 0.35rem 1rem;
+  background: rgba(0, 0, 0, 0.25);
+  border-bottom: 1px solid #1a1a1a;
+  flex-shrink: 0;
+}
+
+.alpha-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  max-width: 36px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: #555;
+  font-size: 0.7rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color 0.12s, background 0.12s;
+}
+
+.alpha-btn:hover {
+  color: #ccc;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.alpha-btn.active {
+  color: #e63946;
+  background: rgba(230, 57, 70, 0.15);
+}
 
 .mode-select {
   flex: 1;

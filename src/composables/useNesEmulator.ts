@@ -216,6 +216,18 @@ export function useNesEmulator(enableAudio = false) {
     nes?.buttonUp(player, button);
   }
 
+  function zapperMove(x: number, y: number) {
+    nes?.zapperMove(x, y);
+  }
+
+  function zapperFireDown() {
+    nes?.zapperFireDown();
+  }
+
+  function zapperFireUp() {
+    nes?.zapperFireUp();
+  }
+
   function readMemory(address: number): number {
     if (!nes) return 0;
     return nes.cpu.mem[address];
@@ -285,6 +297,9 @@ export function useNesEmulator(enableAudio = false) {
     getNes,
     onFrame,
     setVolume,
+    zapperMove,
+    zapperFireDown,
+    zapperFireUp,
     Controller,
   };
 }

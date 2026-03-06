@@ -75,6 +75,9 @@ export interface NesEmulator {
   reset: () => void
   buttonDown: (player: number, button: number) => void
   buttonUp: (player: number, button: number) => void
+  zapperMove: (x: number, y: number) => void
+  zapperFireDown: () => void
+  zapperFireUp: () => void
   readMemory: (address: number) => number
   writeMemory: (address: number, value: number) => void
   saveState: () => object | null

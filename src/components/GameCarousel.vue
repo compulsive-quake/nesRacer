@@ -346,7 +346,26 @@ function scrollToIndex(catalogIndex: number) {
   scrollOffset.value = filteredPos >= 0 ? filteredPos : 0
 }
 
-defineExpose({ scrollToIndex })
+const currentLetter = computed(() => {
+  const game = selectedGame.value
+  if (!game) return ''
+  const ch = game.title[0]?.toUpperCase()
+  return ch >= 'A' && ch <= 'Z' ? ch : '#'
+})
+
+function scrollToLetter(letter: string) {
+  const indices = filteredIndices.value
+  const pos = indices.findIndex(catIdx => {
+    const ch = catalog[catIdx].title[0]?.toUpperCase()
+    return letter === '#' ? (ch < 'A' || ch > 'Z') : ch >= letter
+  })
+  if (pos >= 0) {
+    velocity.value = 0
+    scrollOffset.value = pos
+  }
+}
+
+defineExpose({ scrollToIndex, currentLetter, scrollToLetter })
 
 onMounted(() => {
   const defaultName = props.defaultGame ?? 'Super Mario Bros. (World)'

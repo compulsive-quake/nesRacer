@@ -146,6 +146,43 @@ function handleBack() {
   emit('backToLobby')
 }
 
+// --- Zapper (light gun) via mouse ---
+function canvasNesCoords(e: MouseEvent): { x: number; y: number } | null {
+  const cv = canvasRef.value
+  if (!cv) return null
+  const rect = cv.getBoundingClientRect()
+  // object-fit: contain centres the image within the element box —
+  // compute the actual rendered image area
+  const scaleX = rect.width / 256
+  const scaleY = rect.height / 240
+  const scale = Math.min(scaleX, scaleY)
+  const imgW = 256 * scale
+  const imgH = 240 * scale
+  const offsetX = (rect.width - imgW) / 2
+  const offsetY = (rect.height - imgH) / 2
+  const x = Math.round((e.clientX - rect.left - offsetX) / scale)
+  const y = Math.round((e.clientY - rect.top - offsetY) / scale)
+  if (x < 0 || x > 255 || y < 0 || y > 239) return null
+  return { x, y }
+}
+
+function onCanvasMouseMove(e: MouseEvent) {
+  const pos = canvasNesCoords(e)
+  if (pos) emulator.zapperMove(pos.x, pos.y)
+}
+
+function onCanvasMouseDown(e: MouseEvent) {
+  if (e.button !== 0) return
+  const pos = canvasNesCoords(e)
+  if (pos) emulator.zapperMove(pos.x, pos.y)
+  emulator.zapperFireDown()
+}
+
+function onCanvasMouseUp(e: MouseEvent) {
+  if (e.button !== 0) return
+  emulator.zapperFireUp()
+}
+
 onMounted(async () => {
   if (!canvasRef.value) return
   emulator.setCanvas(canvasRef.value)
@@ -156,6 +193,11 @@ onMounted(async () => {
 
   // Store emulator ref for toolbar windows
   emuRef.value = emulator as unknown as NesEmulator
+
+  // Zapper mouse listeners on canvas
+  canvasRef.value.addEventListener('mousemove', onCanvasMouseMove)
+  canvasRef.value.addEventListener('mousedown', onCanvasMouseDown)
+  canvasRef.value.addEventListener('mouseup', onCanvasMouseUp)
 
   // Per-frame polling for event log + FPS
   emulator.onFrame(() => {
@@ -181,6 +223,9 @@ function onKeyDown(e: KeyboardEvent) {
 
 onUnmounted(() => {
   window.removeEventListener('keydown', onKeyDown)
+  canvasRef.value?.removeEventListener('mousemove', onCanvasMouseMove)
+  canvasRef.value?.removeEventListener('mousedown', onCanvasMouseDown)
+  canvasRef.value?.removeEventListener('mouseup', onCanvasMouseUp)
   inputManager.detach()
   emulator.stop()
   eventLog.reset()
