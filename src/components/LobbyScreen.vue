@@ -63,11 +63,13 @@ onMounted(() => {
   preloadAll()
   document.addEventListener('fullscreenchange', onFullscreenChange)
   window.addEventListener('popstate', onPopState)
+  window.addEventListener('keydown', onKeydown)
 })
 
 onBeforeUnmount(() => {
   document.removeEventListener('fullscreenchange', onFullscreenChange)
   window.removeEventListener('popstate', onPopState)
+  window.removeEventListener('keydown', onKeydown)
 })
 
 function onGameSelected(game: GameInfo) {
@@ -87,7 +89,10 @@ function backToGrid() {
 }
 
 function goBack() {
-  history.back()
+  if (activatedGame.value) {
+    history.back()
+    backToGrid()
+  }
 }
 
 function onPopState() {
@@ -95,6 +100,14 @@ function onPopState() {
     backToGrid()
   }
 }
+
+function onKeydown(e: KeyboardEvent) {
+  if (e.key === 'Backspace' && activatedGame.value && !(e.target instanceof HTMLInputElement)) {
+    e.preventDefault()
+    goBack()
+  }
+}
+
 
 function romUrl(): string {
   const game = activatedGame.value ?? selectedGame.value

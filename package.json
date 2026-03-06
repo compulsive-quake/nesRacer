@@ -8,7 +8,8 @@
     "preview": "vite preview",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "copy:nes-artwork": "robocopy \"\\\\verynas\\Games\\Download Service\\Nintendo_NES\" \".\\src\\assets\\artwork\\nes\" /E /NFL /NDL /NJH /NJS || if %errorlevel% leq 7 exit /b 0"
+    "copy:nes-artwork": "robocopy \"\\\\verynas\\Games\\Download Service\\Nintendo_NES\" \".\\src\\assets\\artwork\\nes\" /E /NFL /NDL /NJH /NJS || if %errorlevel% leq 7 exit /b 0",
+    "generate:thumbnails": "node scripts/generate-thumbnails.mjs"
   },
   "dependencies": {
     "jsnes": "^2.0.0",
