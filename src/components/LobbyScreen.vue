@@ -14,7 +14,7 @@ const emit = defineEmits<{
   startSingle: [romUrl: string, romId: number]
 }>()
 
-const { totalGames, preloadAll, resolveImageUrl } = useGameCatalog()
+const { preloadAll, resolveImageUrl } = useGameCatalog()
 const { showOnlyFavorites, hasFavorites } = useFavorites()
 const showOnlySplitScreen = ref(false)
 
@@ -23,19 +23,9 @@ const activatedGame = ref<GameInfo | null>(null)
 const activatedGameImage = ref('')
 const filterQuery = ref('')
 const viewMode = ref<ViewMode>('grid')
-const loading = ref(true)
-const loadedCount = ref(0)
 
-const loadPercent = computed(() =>
-  totalGames > 0 ? Math.round((loadedCount.value / totalGames) * 100) : 0
-)
-
-onMounted(async () => {
-  await preloadAll((loaded) => {
-    loadedCount.value = loaded
-  })
-  loading.value = false
-})
+// Preload full-size images in the background (for mode-select screen)
+onMounted(() => { preloadAll() })
 
 function onGameSelected(game: GameInfo) {
   selectedGame.value = game
@@ -131,14 +121,6 @@ const splitScreenAvailable = computed(() => {
       </div>
     </header>
 
-    <div v-if="loading" class="loading-wrapper">
-      <div class="loading-label">Loading games... {{ loadPercent }}%</div>
-      <div class="loading-track">
-        <div class="loading-bar" :style="{ width: loadPercent + '%' }" />
-      </div>
-    </div>
-
-    <template v-else>
       <!-- Mode selection screen -->
       <div v-if="activatedGame" class="mode-select">
         <button class="back-btn" @click="backToGrid">
@@ -198,7 +180,6 @@ const splitScreenAvailable = computed(() => {
 
         <GameGrid
           v-else
-          default-game="Super Mario Bros. (World)"
           :filter-query="filterQuery"
           :favorites-only="showOnlyFavorites"
           :split-screen-only="showOnlySplitScreen"
@@ -206,7 +187,6 @@ const splitScreenAvailable = computed(() => {
           @activate="onGameActivated"
         />
       </template>
-    </template>
   </div>
 </template>
 
@@ -351,35 +331,6 @@ const splitScreenAvailable = computed(() => {
   border-color: #e63946;
 }
 
-.loading-wrapper {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 4rem 2rem;
-  width: 100%;
-  max-width: 400px;
-}
-
-.loading-label {
-  font-size: 0.85rem;
-  color: #888;
-}
-
-.loading-track {
-  width: 100%;
-  height: 6px;
-  background: rgba(255, 255, 255, 0.08);
-  border-radius: 3px;
-  overflow: hidden;
-}
-
-.loading-bar {
-  height: 100%;
-  background: #e63946;
-  border-radius: 3px;
-  transition: width 0.1s linear;
-}
 
 .mode-select {
   flex: 1;
