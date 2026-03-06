@@ -51,3 +51,4 @@ Split-screen Super Mario Bros racing game — two jsnes NES emulators running si
 - **RAM introspection:** Game state detected by polling known SMB memory addresses (e.g., 0x0770 operMode, 0x075F world) — no ROM modifications
 - **Composable architecture:** Each concern (emulation, input, detection, race logic, persistence) is a separate composable
 - **Winner sync:** On level completion, winner's savestate is cloned to loser's emulator for next level
+- **Low Latency:** Optimized game first methodology; Ensure all side processes are effecient and don't add any latency to the current gameplay

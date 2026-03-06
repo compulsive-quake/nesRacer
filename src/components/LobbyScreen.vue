@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import type { GameInfo } from '../types'
 import { hasSplitScreen } from '../gameRegistry'
 import { useGameCatalog } from '../composables/useGameCatalog'
@@ -24,8 +24,29 @@ const activatedGameImage = ref('')
 const filterQuery = ref('')
 const viewMode = ref<ViewMode>('grid')
 
+const isFullscreen = ref(!!document.fullscreenElement)
+
+function toggleFullscreen() {
+  if (document.fullscreenElement) {
+    document.exitFullscreen()
+  } else {
+    document.documentElement.requestFullscreen()
+  }
+}
+
+function onFullscreenChange() {
+  isFullscreen.value = !!document.fullscreenElement
+}
+
 // Preload full-size images in the background (for mode-select screen)
-onMounted(() => { preloadAll() })
+onMounted(() => {
+  preloadAll()
+  document.addEventListener('fullscreenchange', onFullscreenChange)
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('fullscreenchange', onFullscreenChange)
+})
 
 function onGameSelected(game: GameInfo) {
   selectedGame.value = game
@@ -119,6 +140,18 @@ const splitScreenAvailable = computed(() => {
           </svg>
         </button>
       </div>
+      <button
+        class="fullscreen-btn"
+        :title="isFullscreen ? 'Exit fullscreen' : 'Fullscreen'"
+        @click="toggleFullscreen"
+      >
+        <svg v-if="!isFullscreen" width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+          <path d="M2 2h4V0H0v6h2V2zm12 0v4h2V0h-6v2h4zM2 14v-4H0v6h6v-2H2zm12 0h-4v2h6v-6h-2v4z"/>
+        </svg>
+        <svg v-else width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+          <path d="M4 0v4H0v2h6V0H4zm8 0v4h4v2h-6V0h2zM0 10h4v4h2v-6H0v2zm10 0v6h2v-4h4v-2h-6z"/>
+        </svg>
+      </button>
     </header>
 
       <!-- Mode selection screen -->
@@ -305,6 +338,28 @@ const splitScreenAvailable = computed(() => {
   background: rgba(230, 57, 70, 0.12);
 }
 
+.fullscreen-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid #444;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  color: #666;
+  cursor: pointer;
+  transition: all 0.15s;
+  margin-left: 0.5rem;
+  flex-shrink: 0;
+}
+
+.fullscreen-btn:hover {
+  color: #e63946;
+  border-color: #e63946;
+  background: rgba(230, 57, 70, 0.08);
+}
+
 .filter-wrapper {
   flex: 0 1 360px;
   position: relative;
@@ -371,7 +426,7 @@ const splitScreenAvailable = computed(() => {
 }
 
 .mode-select-cover {
-  width: 200px;
+  width: 400px;
   aspect-ratio: 140 / 190;
   object-fit: contain;
   border-radius: 6px;
